@@ -7,6 +7,7 @@ from livekit.plugins import openai, silero
 from livekit_sales_agent.config import Settings
 from livekit_sales_agent.kb import KnowledgeBase
 from livekit_sales_agent.prompts import build_instructions
+from livekit_sales_agent.voice import build_stt, build_tts
 
 
 load_dotenv()
@@ -58,6 +59,8 @@ class SalesAgent(Agent):
 
 def build_session(proc: JobProcess) -> AgentSession:
     settings.validate()
+    stt_impl = build_stt(settings)
+    tts_impl = build_tts(settings)
     session_kwargs = dict(
         vad=proc.userdata["vad"],
         llm=openai.LLM(
@@ -67,10 +70,10 @@ def build_session(proc: JobProcess) -> AgentSession:
         ),
         turn_handling={"turn_detection": "vad"},
     )
-    if settings.stt_descriptor:
-        session_kwargs["stt"] = settings.stt_descriptor
-    if settings.tts_descriptor:
-        session_kwargs["tts"] = settings.tts_descriptor
+    if stt_impl is not None:
+        session_kwargs["stt"] = stt_impl
+    if tts_impl is not None:
+        session_kwargs["tts"] = tts_impl
     return AgentSession(**session_kwargs)
 
 

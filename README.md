@@ -7,7 +7,7 @@
 - `本地 Markdown / JSON 知识库`
 - `价格作为静态知识录入`
 
-当前版本没有接第三方向量库，也没有把豆包 STT/TTS 真正接进 LiveKit。`src/livekit_sales_agent/adapters/` 里预留了后续适配位置。
+当前版本不接第三方向量库。豆包语音现在已经有本地适配层，但你仍然需要在 `.env` 里补齐豆包参数后才能真正启用。新版控制台优先使用 `DOUBAO_API_KEY + RESOURCE_ID`，旧版控制台才使用 `AppID/Access Token/cluster`。
 
 ## 目录结构
 
@@ -61,6 +61,14 @@ uv run python src/agent.py console --text
 
 - `STT_DESCRIPTOR`
 - `TTS_DESCRIPTOR`
+- `DOUBAO_*`
+
+新版控制台至少需要：
+
+- `DOUBAO_API_KEY`
+- `DOUBAO_STT_RESOURCE_ID`
+- `DOUBAO_TTS_RESOURCE_ID`
+- `DOUBAO_TTS_VOICE_TYPE`
 
 6. 连接真实 LiveKit：
 
@@ -101,12 +109,12 @@ uv run python src/agent.py dev
 
 ## 后续接豆包
 
-现在的工程已经把接口位置留好了：
+现在的工程已经有豆包适配器实现：
 
 - `src/livekit_sales_agent/adapters/doubao_stt.py`
 - `src/livekit_sales_agent/adapters/doubao_tts.py`
 
-下一步接入时，建议顺序是：
+建议联调顺序是：
 
 1. 先替换 `STT_DESCRIPTOR`，把豆包流式 ASR 接到 `stt_node`
 2. 再替换 `TTS_DESCRIPTOR`，把豆包流式 TTS 接到 `tts_node`
