@@ -1,0 +1,116 @@
+Metadata-Version: 2.4
+Name: livekit-sales-agent-mvp
+Version: 0.1.0
+Summary: Minimal LiveKit Agents sales assistant with a local knowledge base.
+Requires-Python: <3.15,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: livekit-agents[openai,silero]~=1.5
+Requires-Dist: python-dotenv>=1.0.1
+
+# LiveKit Sales Agent MVP
+
+这是一个最小可用骨架，目标是先跑通：
+
+- `LiveKit Agents`
+- `OpenAI-compatible LLM`
+- `本地 Markdown / JSON 知识库`
+- `价格作为静态知识录入`
+
+当前版本没有接第三方向量库，也没有把豆包 STT/TTS 真正接进 LiveKit。`src/livekit_sales_agent/adapters/` 里预留了后续适配位置。
+
+## 目录结构
+
+```text
+livekit-sales-agent-mvp/
+├── knowledge/
+├── src/
+│   ├── agent.py
+│   └── livekit_sales_agent/
+│       ├── adapters/
+│       ├── config.py
+│       ├── kb.py
+│       └── prompts.py
+└── tests/
+```
+
+## 先做什么
+
+1. 安装依赖：
+
+```bash
+uv sync
+```
+
+要求本机 Python 版本为 `3.10+`，推荐 `3.11`。
+
+2. 复制环境变量：
+
+```bash
+cp .env.example .env
+```
+
+3. 填写你自己的：
+
+- `LIVEKIT_URL`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `OPENAI_COMPAT_MODEL`
+- `OPENAI_COMPAT_BASE_URL`
+- `OPENAI_COMPAT_API_KEY`
+
+4. 先用默认 `STT_DESCRIPTOR` 和 `TTS_DESCRIPTOR` 跑通整条链路。
+
+5. 控制台调试：
+
+```bash
+python src/agent.py console
+```
+
+6. 连接真实 LiveKit：
+
+```bash
+python src/agent.py dev
+```
+
+## 知识库格式
+
+### JSON
+
+推荐把商品、套餐、标准报价写成结构化 JSON。价格一定要带更新时间。
+
+```json
+[
+  {
+    "id": "starter-plan",
+    "title": "入门版套餐",
+    "category": "plan",
+    "content": "适合 1-5 人小团队，包含基础客服问答和线索收集能力。",
+    "price": "1999 元 / 年",
+    "updated_at": "2026-05-06",
+    "keywords": ["入门版", "价格", "套餐", "客服"]
+  }
+]
+```
+
+### Markdown
+
+推荐把 FAQ、销售话术、产品对比写成 Markdown。每个二级标题会被拆成一个可检索块。
+
+## 当前约束
+
+- 价格不是实时价格，Agent 会把它当作静态知识回答。
+- Prompt 已经要求模型回答价格时必须说出 `更新时间`。
+- 如果价格更新时间超过 `PRICE_STALE_AFTER_DAYS`，Agent 会提醒“需要人工确认最新价格”。
+
+## 后续接豆包
+
+现在的工程已经把接口位置留好了：
+
+- `src/livekit_sales_agent/adapters/doubao_stt.py`
+- `src/livekit_sales_agent/adapters/doubao_tts.py`
+
+下一步接入时，建议顺序是：
+
+1. 先替换 `STT_DESCRIPTOR`，把豆包流式 ASR 接到 `stt_node`
+2. 再替换 `TTS_DESCRIPTOR`，把豆包流式 TTS 接到 `tts_node`
+3. 最后把“价格问题”从知识库迁移成工具调用

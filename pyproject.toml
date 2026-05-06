@@ -1,0 +1,16 @@
+[project]
+name = "livekit-sales-agent-mvp"
+version = "0.1.0"
+description = "Minimal LiveKit Agents sales assistant with a local knowledge base."
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+  "livekit-agents[openai,silero]~=1.5",
+  "python-dotenv>=1.0.1",
+]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
