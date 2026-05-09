@@ -37,10 +37,11 @@ export const WelcomeView = ({
   startDisabled = false,
   startDisabledReason,
   ref,
+  className,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   return (
-    <div ref={ref}>
-      <section className="bg-background flex flex-col items-center justify-center text-center">
+    <div ref={ref} className={className}>
+      <section className="bg-background flex flex-1 flex-col items-center justify-center rounded-[28px] border border-border/70 px-6 py-10 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
@@ -89,21 +90,6 @@ export const WelcomeView = ({
           </div>
         ) : null}
       </section>
-
-      <div className="fixed bottom-5 left-0 flex w-full items-center justify-center">
-        <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
-          如果需要快速完成接入，可以查看{' '}
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://docs.livekit.io/agents/start/voice-ai/"
-            className="underline"
-          >
-            Voice AI 快速开始
-          </a>
-          。
-        </p>
-      </div>
     </div>
   );
 };

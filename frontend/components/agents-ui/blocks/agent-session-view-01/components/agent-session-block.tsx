@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
@@ -155,6 +155,8 @@ export interface AgentSessionView_01Props {
   className?: string;
   /** Whether the transcript panel should be open when the session view first mounts. */
   initialChatOpen?: boolean;
+  /** Current session mode to allow a dedicated text-only layout. */
+  sessionMode?: 'text' | 'voice';
 }
 
 export function AgentSessionView_01({
@@ -174,6 +176,7 @@ export function AgentSessionView_01({
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
   initialChatOpen = false,
+  sessionMode = 'voice',
   ref,
   className,
   ...props
@@ -181,34 +184,79 @@ export function AgentSessionView_01({
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
   const [chatOpen, setChatOpen] = useState(initialChatOpen);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
 
   useEffect(() => {
     setChatOpen(initialChatOpen);
   }, [initialChatOpen]);
 
-  const controls: AgentControlBarControls = {
-    leave: true,
-    microphone: true,
-    chat: supportsChatInput,
-    camera: supportsVideoInput,
-    screenShare: supportsScreenShare,
-  };
+  const controls: AgentControlBarControls =
+    sessionMode === 'text'
+      ? {
+          leave: true,
+          microphone: false,
+          chat: false,
+          camera: false,
+          screenShare: false,
+        }
+      : {
+          leave: true,
+          microphone: true,
+          chat: supportsChatInput,
+          camera: supportsVideoInput,
+          screenShare: supportsScreenShare,
+        };
 
-  useEffect(() => {
-    const lastMessage = messages.at(-1);
-    const lastMessageIsLocal = lastMessage?.from?.isLocal === true;
+  if (sessionMode === 'text') {
+    return (
+      <section
+        ref={ref}
+        className={cn(
+          'bg-background relative z-10 flex h-full min-h-0 w-full max-h-full flex-col overflow-hidden',
+          className
+        )}
+        {...props}
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-6 md:px-8 md:pt-8">
+          <div className="mb-4 shrink-0">
+            <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
+              消息会话
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight">消息对话</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              当前为纯文字会话模式，不会启用录音，也不会播放语音。
+            </p>
+          </div>
 
-    if (scrollAreaRef.current && lastMessageIsLocal) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
-  }, [messages]);
+          <div className="min-h-0 flex-1 overflow-hidden rounded-[24px] border border-border/70 bg-accent/25">
+            <AgentChatTranscript
+              agentState={agentState}
+              messages={messages}
+              className="h-full min-h-0 [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6"
+            />
+          </div>
+        </div>
+
+        <div className="shrink-0 px-4 pb-4 pt-3 md:px-8 md:pb-8">
+          <AgentControlBar
+            variant="livekit"
+            controls={controls}
+            isChatOpen
+            isConnected={session.isConnected}
+            onDisconnect={session.end}
+          />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
       ref={ref}
-      className={cn('bg-background relative z-10 h-full w-full overflow-hidden', className)}
+      className={cn(
+        'bg-background relative z-10 h-full min-h-0 w-full max-h-full overflow-hidden',
+        className
+      )}
       {...props}
     >
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />

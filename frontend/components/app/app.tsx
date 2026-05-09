@@ -59,7 +59,7 @@ export function App({ appConfig }: AppProps) {
   return (
     <AgentSessionProvider session={session} muted={sessionMode === 'text'}>
       <AppSetup />
-      <main className="grid min-h-svh grid-cols-1 place-content-center">
+      <main className="min-h-svh">
         <ViewController
           appConfig={appConfig}
           sessionMode={sessionMode}
