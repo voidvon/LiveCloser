@@ -10,10 +10,15 @@ def _default_kb_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "knowledge"
 
 
+def _default_kb_data_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / ".data" / "kb"
+
+
 @dataclass
 class Settings:
     agent_name: str
     kb_dir: Path
+    kb_data_dir: Path
     kb_top_k: int
     price_stale_after_days: int
     llm_model: str
@@ -46,10 +51,14 @@ class Settings:
         kb_dir = Path(os.getenv("KB_DIR", str(_default_kb_dir()))).expanduser()
         if not kb_dir.is_absolute():
             kb_dir = Path.cwd() / kb_dir
+        kb_data_dir = Path(os.getenv("KB_DATA_DIR", str(_default_kb_data_dir()))).expanduser()
+        if not kb_data_dir.is_absolute():
+            kb_data_dir = Path.cwd() / kb_data_dir
 
         return cls(
             agent_name=os.getenv("AGENT_NAME", "sales-kb-agent"),
             kb_dir=kb_dir,
+            kb_data_dir=kb_data_dir,
             kb_top_k=int(os.getenv("KB_TOP_K", "3")),
             price_stale_after_days=int(os.getenv("PRICE_STALE_AFTER_DAYS", "3")),
             llm_model=os.getenv("OPENAI_COMPAT_MODEL", ""),

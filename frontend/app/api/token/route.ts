@@ -60,7 +60,7 @@ function sanitizeRoomConfig(input: unknown) {
     });
   }
 
-  return roomConfig;
+  return roomConfig as Parameters<typeof RoomConfiguration.fromJson>[0];
 }
 
 function toServiceUrl(url: string) {

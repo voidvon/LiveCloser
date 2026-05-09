@@ -39,9 +39,9 @@ export interface AppConfig {
 const agentName = process.env.AGENT_NAME?.trim() || undefined;
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
-  companyName: 'Sales Agent MVP',
-  pageTitle: 'AI Sales Agent',
-  pageDescription: 'A LiveKit-based AI sales assistant with local knowledge base',
+  companyName: '销售助手 MVP',
+  pageTitle: 'AI 销售助手',
+  pageDescription: '一个基于 LiveKit 的 AI 销售助手，支持本地知识库',
 
   supportsChatInput: true,
   supportsVideoInput: true,
@@ -52,7 +52,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   accent: '#0e7490',
   logoDark: '/lk-logo-dark.svg',
   accentDark: '#22d3ee',
-  startButtonText: 'Start session',
+  startButtonText: '开始会话',
 
   // optional: audio visualization configuration
   // audioVisualizerType: 'bar',

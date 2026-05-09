@@ -1,2 +1,3 @@
 agent
+kb_server
 livekit_sales_agent

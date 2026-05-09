@@ -4,52 +4,66 @@ Version: 0.1.0
 Summary: Minimal LiveKit Agents sales assistant with a local knowledge base.
 Requires-Python: <3.15,>=3.10
 Description-Content-Type: text/markdown
+Requires-Dist: chromadb>=0.5.23
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: httpx>=0.28.1
 Requires-Dist: livekit-agents[openai,silero]~=1.5
+Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: uvicorn>=0.32.0
 
 # LiveKit Sales Agent MVP
 
-这是一个最小可用骨架，目标是先跑通：
+这是一个最小可用的销售 Agent 项目，开发时通常会跑三部分：
 
-- `LiveKit Agents`
-- `OpenAI-compatible LLM`
-- `本地 Markdown / JSON 知识库`
-- `价格作为静态知识录入`
+- LiveKit Server
+- Python 后端：`LiveKit Agents` + OpenAI 兼容 LLM + 本地知识库
+- Python 知识库服务：管理多知识库、文件上传和索引任务
+- Next.js 前端：用于发起会话、展示对话和语音交互界面
 
-当前版本没有接第三方向量库，也没有把豆包 STT/TTS 真正接进 LiveKit。`src/livekit_sales_agent/adapters/` 里预留了后续适配位置。
-
-## 目录结构
+## 项目结构
 
 ```text
 livekit-sales-agent-mvp/
-├── knowledge/
+├── frontend/          # Next.js 前端
+├── knowledge/         # 旧的本地 Markdown / JSON 知识目录
+├── .data/             # 运行时数据（SQLite / 上传文件 / Chroma）
+├── scripts/
+│   └── dev.sh         # 统一开发启动脚本
 ├── src/
 │   ├── agent.py
+│   ├── kb_server.py
 │   └── livekit_sales_agent/
-│       ├── adapters/
-│       ├── config.py
-│       ├── kb.py
-│       └── prompts.py
 └── tests/
 ```
 
-## 先做什么
+## 依赖要求
 
-1. 安装依赖：
+- Python `3.10+`，推荐 `3.11`
+- `uv`
+- Node.js `18+`
+- `npm`
+- `livekit-server`
 
-```bash
-uv sync
-```
+说明：
 
-要求本机 Python 版本为 `3.10+`，推荐 `3.11`。
+- 根目录 `.env` 给后端 Agent 使用
+- `frontend/.env.local` 给前端使用
+- 知识库服务默认使用 `KB_DATA_DIR=.data/kb`
+- 如果两个文件里的 `LIVEKIT_URL` 指向同一个 LiveKit 实例，前后端才能正常联通
+- 如果 `LIVEKIT_URL=ws://127.0.0.1:7880` 或 `ws://localhost:7880`，`dev.sh` 会自动启动本地 LiveKit Server
 
-2. 复制环境变量：
+## 环境变量
+
+首次使用至少准备这几个变量。
+
+后端 `.env`：
 
 ```bash
 cp .env.example .env
 ```
 
-3. 填写你自己的：
+必填项：
 
 - `LIVEKIT_URL`
 - `LIVEKIT_API_KEY`
@@ -58,59 +72,158 @@ cp .env.example .env
 - `OPENAI_COMPAT_BASE_URL`
 - `OPENAI_COMPAT_API_KEY`
 
-4. 先用默认 `STT_DESCRIPTOR` 和 `TTS_DESCRIPTOR` 跑通整条链路。
-
-5. 控制台调试：
+前端 `.env.local`：
 
 ```bash
-python src/agent.py console
+cp frontend/.env.example frontend/.env.local
 ```
 
-6. 连接真实 LiveKit：
+必填项：
+
+- `LIVEKIT_URL`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `DISPATCH_AGENT_NAME` 或让前端保持默认派发逻辑
+- `KB_API_URL` 默认可保留 `http://127.0.0.1:8001`
+
+如果只验证文字模式，后端可以先不填语音相关变量；如果要用豆包语音，再补齐：
+
+- `STT_DESCRIPTOR=doubao`
+- `TTS_DESCRIPTOR=doubao`
+- `DOUBAO_API_KEY`
+- `DOUBAO_STT_RESOURCE_ID`
+- `DOUBAO_TTS_RESOURCE_ID`
+- `DOUBAO_TTS_VOICE_TYPE`
+
+## 开发启动
+
+推荐直接使用统一脚本：
 
 ```bash
-python src/agent.py dev
+./scripts/dev.sh
 ```
 
-## 知识库格式
+它会：
 
-### JSON
+- 如果 `LIVEKIT_URL` 指向本地地址，自动启动 `livekit-server`
+- 后台启动 Python 知识库服务
+- 后台启动 Python Agent
+- 前台启动 Next.js 开发服务器
 
-推荐把商品、套餐、标准报价写成结构化 JSON。价格一定要带更新时间。
+默认前端地址：
 
-```json
-[
-  {
-    "id": "starter-plan",
-    "title": "入门版套餐",
-    "category": "plan",
-    "content": "适合 1-5 人小团队，包含基础客服问答和线索收集能力。",
-    "price": "1999 元 / 年",
-    "updated_at": "2026-05-06",
-    "keywords": ["入门版", "价格", "套餐", "客服"]
-  }
-]
+```text
+http://localhost:3000
 ```
 
-### Markdown
+如果 `.env` 里的 `LIVEKIT_URL` 是远程地址，脚本不会尝试在本地启动 LiveKit，而是直接连接你配置的远程实例。
 
-推荐把 FAQ、销售话术、产品对比写成 Markdown。每个二级标题会被拆成一个可检索块。
+### 分开启动
+
+只启动后端：
+
+```bash
+./scripts/dev.sh backend
+```
+
+只启动前端：
+
+```bash
+./scripts/dev.sh frontend
+```
+
+只启动知识库服务：
+
+```bash
+./scripts/dev.sh kb
+```
+
+只启动本地 LiveKit：
+
+```bash
+./scripts/dev.sh livekit
+```
+
+只跑文字控制台：
+
+```bash
+./scripts/dev.sh console
+```
+
+## 不用脚本时的原始命令
+
+LiveKit：
+
+```bash
+LIVEKIT_KEYS='devkey: secret' livekit-server --dev --bind 127.0.0.1
+```
+
+后端：
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python src/agent.py dev
+```
+
+知识库服务：
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run uvicorn src.kb_server:app --host 127.0.0.1 --port 8001
+```
+
+前端：
+
+```bash
+cd frontend
+npm run dev
+```
+
+文字模式自检：
+
+```bash
+UV_CACHE_DIR=.uv-cache uv run python src/agent.py console --text
+```
+
+## 常见问题
+
+### 1. `dev.sh` 为什么之前没有包含 LiveKit？
+
+现在已经包含了。只要根目录 `.env` 里的 `LIVEKIT_URL` 是本地地址，脚本会自动检查并启动 `livekit-server`。
+
+### 2. 后端看起来启动了，但一直重试
+
+如果日志里出现类似错误：
+
+```text
+Cannot connect to host 127.0.0.1:7880
+```
+
+这通常不是 Agent 代码没启动，而是 `LIVEKIT_URL` 指向的 LiveKit Server 没有启动。
+
+### 3. 前端能开，但点击开始时报 500
+
+这通常也是因为前端在调用 LiveKit 或 Agent dispatch 时，`LIVEKIT_URL` 对应的服务不可达。
+
+### 4. 什么时候不需要 STT / TTS？
+
+如果你只想先验证知识库问答和 LLM 流程，可以先用：
+
+```bash
+./scripts/dev.sh console
+```
+
+这条命令不依赖语音输入输出。
 
 ## 当前约束
 
-- 价格不是实时价格，Agent 会把它当作静态知识回答。
-- Prompt 已经要求模型回答价格时必须说出 `更新时间`。
-- 如果价格更新时间超过 `PRICE_STALE_AFTER_DAYS`，Agent 会提醒“需要人工确认最新价格”。
+- 价格信息来自本地知识库，不是实时价格
+- Prompt 已要求回答价格时带上 `更新时间`
+- 如果价格更新时间超过 `PRICE_STALE_AFTER_DAYS`，Agent 会提醒需要人工确认
 
-## 后续接豆包
+## 后续联调建议
 
-现在的工程已经把接口位置留好了：
+建议按这个顺序联调：
 
-- `src/livekit_sales_agent/adapters/doubao_stt.py`
-- `src/livekit_sales_agent/adapters/doubao_tts.py`
-
-下一步接入时，建议顺序是：
-
-1. 先替换 `STT_DESCRIPTOR`，把豆包流式 ASR 接到 `stt_node`
-2. 再替换 `TTS_DESCRIPTOR`，把豆包流式 TTS 接到 `tts_node`
-3. 最后把“价格问题”从知识库迁移成工具调用
+1. 先跑 `./scripts/dev.sh console`，确认 LLM 和知识库正常
+2. 再确认 `LIVEKIT_URL` 对应的服务可用
+3. 再跑 `./scripts/dev.sh`
+4. 最后再接入 `doubao` 的 STT / TTS

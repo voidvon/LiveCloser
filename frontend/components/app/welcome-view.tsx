@@ -38,7 +38,7 @@ export const WelcomeView = ({
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
-          Chat live with your voice AI agent
+          现在就和你的语音 AI 助手开始对话
         </p>
 
         <Button
@@ -59,16 +59,16 @@ export const WelcomeView = ({
 
       <div className="fixed bottom-5 left-0 flex w-full items-center justify-center">
         <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
-          Need help getting set up? Check out the{' '}
+          如果需要快速完成接入，可以查看{' '}
           <a
             target="_blank"
             rel="noopener noreferrer"
             href="https://docs.livekit.io/agents/start/voice-ai/"
             className="underline"
           >
-            Voice AI quickstart
+            Voice AI 快速开始
           </a>
-          .
+          。
         </p>
       </div>
     </div>
