@@ -153,6 +153,8 @@ export interface AgentSessionView_01Props {
   audioVisualizerWaveLineWidth?: number;
   /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
+  /** Whether the transcript panel should be open when the session view first mounts. */
+  initialChatOpen?: boolean;
 }
 
 export function AgentSessionView_01({
@@ -171,15 +173,20 @@ export function AgentSessionView_01({
   audioVisualizerRadialBarCount,
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
+  initialChatOpen = false,
   ref,
   className,
   ...props
 }: React.ComponentProps<'section'> & AgentSessionView_01Props) {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(initialChatOpen);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
+
+  useEffect(() => {
+    setChatOpen(initialChatOpen);
+  }, [initialChatOpen]);
 
   const controls: AgentControlBarControls = {
     leave: true,

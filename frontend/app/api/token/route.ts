@@ -18,6 +18,7 @@ type ConnectionDetails = {
 const API_KEY = process.env.LIVEKIT_API_KEY;
 const API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
+const AGENT_NAME = process.env.AGENT_NAME?.trim() || undefined;
 const DISPATCH_AGENT_NAME = process.env.DISPATCH_AGENT_NAME?.trim() || undefined;
 
 function isPlaceholder(value: string | undefined) {
@@ -96,12 +97,14 @@ export async function POST(req: Request) {
       throw new Error('LIVEKIT_API_SECRET is missing or still using the placeholder value');
     }
 
-    // Parse room config from request body.
+    // Parse room config and participant metadata from request body.
     const body = await req.json();
     const sanitizedRoomConfig = sanitizeRoomConfig(body?.room_config);
     const roomConfig = sanitizedRoomConfig
       ? RoomConfiguration.fromJson(sanitizedRoomConfig, { ignoreUnknownFields: true })
       : new RoomConfiguration();
+    const participantMetadata =
+      typeof body?.participant_metadata === 'string' ? body.participant_metadata : '';
 
     // Generate participant token
     const participantName = 'user';
@@ -109,14 +112,18 @@ export async function POST(req: Request) {
     const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
-      { identity: participantIdentity, name: participantName },
+      { identity: participantIdentity, name: participantName, metadata: participantMetadata },
       roomName,
       roomConfig
     );
 
-    if (DISPATCH_AGENT_NAME) {
+    const resolvedDispatchAgentName = DISPATCH_AGENT_NAME || AGENT_NAME;
+
+    if (resolvedDispatchAgentName) {
       const dispatchClient = new AgentDispatchClient(toServiceUrl(LIVEKIT_URL), API_KEY, API_SECRET);
-      await dispatchClient.createDispatch(roomName, DISPATCH_AGENT_NAME);
+      await dispatchClient.createDispatch(roomName, resolvedDispatchAgentName, {
+        metadata: participantMetadata,
+      });
     }
 
     // Return connection details

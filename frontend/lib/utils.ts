@@ -172,3 +172,32 @@ export function getSandboxTokenSource(appConfig: AppConfig) {
     }
   });
 }
+
+export function getAppTokenSource(
+  appConfig: AppConfig,
+  sessionMode: 'text' | 'voice',
+  knowledgeBaseId?: string | null
+) {
+  return TokenSource.custom(async () => {
+    const participantMetadata = JSON.stringify({
+      session_mode: sessionMode,
+      knowledge_base_id: knowledgeBaseId ?? null,
+    });
+
+    const res = await fetch('/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        participant_metadata: participantMetadata,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    return await res.json();
+  });
+}

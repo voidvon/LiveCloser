@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSessionContext } from '@livekit/components-react';
@@ -30,16 +31,63 @@ const VIEW_MOTION_PROPS = {
 
 interface ViewControllerProps {
   appConfig: AppConfig;
+  sessionMode: 'text' | 'voice';
+  onSessionModeChange: (mode: 'text' | 'voice') => void;
+  activeKnowledgeBaseId: string | null;
+  onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
 }
 
-export function ViewController({ appConfig }: ViewControllerProps) {
+export function ViewController({
+  appConfig,
+  sessionMode,
+  onSessionModeChange,
+  activeKnowledgeBaseId,
+  onActiveKnowledgeBaseIdChange,
+}: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
-  const handleStart = () => {
+  const [knowledgeBases, setKnowledgeBases] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    void fetch('/api/kb/knowledge-bases', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        return response.json() as Promise<Array<{ id: string; name: string }>>;
+      })
+      .then((data) => {
+        setKnowledgeBases(data);
+        if (!activeKnowledgeBaseId && data[0]?.id) {
+          onActiveKnowledgeBaseIdChange(data[0].id);
+        }
+      })
+      .catch(() => {
+        setKnowledgeBases([]);
+      });
+  }, [activeKnowledgeBaseId, onActiveKnowledgeBaseIdChange]);
+
+  const handleStartTextChat = () => {
     if (!appConfig.sessionStartEnabled) {
       return;
     }
 
+    onSessionModeChange('text');
+    void start({
+      tracks: {
+        microphone: { enabled: false },
+        camera: { enabled: false },
+        screenShare: { enabled: false },
+      },
+    });
+  };
+
+  const handleStartVoiceChat = () => {
+    if (!appConfig.sessionStartEnabled) {
+      return;
+    }
+
+    onSessionModeChange('voice');
     void start();
   };
 
@@ -50,8 +98,11 @@ export function ViewController({ appConfig }: ViewControllerProps) {
         <MotionWelcomeView
           key="welcome"
           {...VIEW_MOTION_PROPS}
-          startButtonText={appConfig.startButtonText}
-          onStartCall={handleStart}
+          onStartTextChat={handleStartTextChat}
+          onStartVoiceChat={handleStartVoiceChat}
+          knowledgeBases={knowledgeBases}
+          activeKnowledgeBaseId={activeKnowledgeBaseId}
+          onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
           startDisabled={!appConfig.sessionStartEnabled}
           startDisabledReason={appConfig.sessionStartDisabledReason}
         />
@@ -78,6 +129,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           audioVisualizerRadialBarCount={appConfig.audioVisualizerRadialBarCount}
           audioVisualizerRadialRadius={appConfig.audioVisualizerRadialRadius}
           audioVisualizerWaveLineWidth={appConfig.audioVisualizerWaveLineWidth}
+          initialChatOpen={sessionMode === 'text'}
           className="fixed inset-0"
         />
       )}

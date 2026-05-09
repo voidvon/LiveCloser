@@ -19,15 +19,21 @@ function WelcomeImage() {
 }
 
 interface WelcomeViewProps {
-  startButtonText: string;
-  onStartCall: () => void;
+  onStartTextChat: () => void;
+  onStartVoiceChat: () => void;
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  activeKnowledgeBaseId?: string | null;
+  onActiveKnowledgeBaseIdChange?: (kbId: string | null) => void;
   startDisabled?: boolean;
   startDisabledReason?: string;
 }
 
 export const WelcomeView = ({
-  startButtonText,
-  onStartCall,
+  onStartTextChat,
+  onStartVoiceChat,
+  knowledgeBases = [],
+  activeKnowledgeBaseId,
+  onActiveKnowledgeBaseIdChange,
   startDisabled = false,
   startDisabledReason,
   ref,
@@ -38,17 +44,44 @@ export const WelcomeView = ({
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
-          现在就和你的语音 AI 助手开始对话
+          选择消息对话或语音对话，开始和 AI 助手交互
         </p>
 
-        <Button
-          size="lg"
-          onClick={onStartCall}
-          disabled={startDisabled}
-          className="mt-6 w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
-        >
-          {startButtonText}
-        </Button>
+        <div className="mt-5 w-full max-w-md text-left">
+          <label className="mb-2 block text-sm font-medium">当前会话知识库</label>
+          <select
+            value={activeKnowledgeBaseId ?? ''}
+            onChange={(e) => onActiveKnowledgeBaseIdChange?.(e.target.value || null)}
+            className="bg-background w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+          >
+            <option value="">不绑定知识库</option>
+            {knowledgeBases.map((kb) => (
+              <option key={kb.id} value={kb.id}>
+                {kb.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Button
+            size="lg"
+            onClick={onStartTextChat}
+            disabled={startDisabled}
+            className="w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
+          >
+            消息对话
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={onStartVoiceChat}
+            disabled={startDisabled}
+            className="w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
+          >
+            语音对话
+          </Button>
+        </div>
 
         {startDisabledReason ? (
           <div className="mt-4 max-w-xl rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-sm leading-6 text-amber-900 dark:text-amber-100">

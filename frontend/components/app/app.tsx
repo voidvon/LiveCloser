@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { TokenSource } from 'livekit-client';
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
@@ -11,7 +11,7 @@ import { ViewController } from '@/components/app/view-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
-import { getSandboxTokenSource } from '@/lib/utils';
+import { getAppTokenSource, getSandboxTokenSource } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
@@ -27,11 +27,13 @@ interface AppProps {
 }
 
 export function App({ appConfig }: AppProps) {
+  const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('voice');
+  const [activeKnowledgeBaseId, setActiveKnowledgeBaseId] = useState<string | null>(null);
   const tokenSource = useMemo(() => {
     return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
       ? getSandboxTokenSource(appConfig)
-      : TokenSource.endpoint('/api/token');
-  }, [appConfig]);
+      : getAppTokenSource(appConfig, sessionMode, activeKnowledgeBaseId);
+  }, [appConfig, sessionMode, activeKnowledgeBaseId]);
 
   const session = useSession(
     tokenSource,
@@ -39,12 +41,18 @@ export function App({ appConfig }: AppProps) {
   );
 
   return (
-    <AgentSessionProvider session={session}>
+    <AgentSessionProvider session={session} muted={sessionMode === 'text'}>
       <AppSetup />
       <main className="grid min-h-svh grid-cols-1 place-content-center">
-        <ViewController appConfig={appConfig} />
+        <ViewController
+          appConfig={appConfig}
+          sessionMode={sessionMode}
+          onSessionModeChange={setSessionMode}
+          activeKnowledgeBaseId={activeKnowledgeBaseId}
+          onActiveKnowledgeBaseIdChange={setActiveKnowledgeBaseId}
+        />
       </main>
-      <StartAudioButton label="开启音频" />
+      {sessionMode === 'voice' ? <StartAudioButton label="启用音频播放" /> : null}
       <Toaster
         icons={{
           warning: <WarningIcon weight="bold" />,
