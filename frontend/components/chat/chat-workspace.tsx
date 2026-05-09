@@ -421,7 +421,7 @@ export function ChatWorkspace({
 
   return (
     <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
-      <aside className="bg-background flex w-full shrink-0 flex-col overflow-hidden rounded-[28px] border border-border/70 lg:w-[320px]">
+      <aside className="flex w-full shrink-0 flex-col overflow-hidden rounded-[28px] border border-border/60 bg-accent/10 backdrop-blur-xl lg:w-[320px]">
         <div className="border-border/70 flex items-center justify-between border-b px-4 py-4">
           <div>
             <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
@@ -454,7 +454,7 @@ export function ChatWorkspace({
             value={activeKnowledgeBaseId ?? ''}
             onChange={(e) => onActiveKnowledgeBaseIdChange(e.target.value || null)}
             disabled={sessionActive}
-            className="bg-background w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+            className="w-full rounded-2xl border border-border/60 bg-background/55 px-4 py-3 text-sm outline-none transition-colors hover:border-primary/20 focus:border-primary/30"
           >
             <option value="">不绑定知识库</option>
             {knowledgeBases.map((kb) => (
@@ -468,11 +468,11 @@ export function ChatWorkspace({
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-2">
             {loadingConversations ? (
-              <div className="text-muted-foreground rounded-2xl border border-dashed px-4 py-6 text-sm">
+              <div className="text-muted-foreground rounded-2xl border border-dashed border-border/50 bg-background/30 px-4 py-6 text-sm">
                 正在加载会话列表…
               </div>
             ) : conversations.length === 0 ? (
-              <div className="text-muted-foreground rounded-2xl border border-dashed px-4 py-6 text-sm leading-6">
+              <div className="text-muted-foreground rounded-2xl border border-dashed border-border/50 bg-background/30 px-4 py-6 text-sm leading-6">
                 还没有历史会话。先新建一个会话，再选择消息或语音方式开始。
               </div>
             ) : (
@@ -483,8 +483,8 @@ export function ChatWorkspace({
                     className={cn(
                       'w-full rounded-2xl border px-4 py-3 text-left',
                       activeConversationId === conversation.id
-                        ? 'border-foreground/15 bg-foreground text-background'
-                        : 'border-border/70 bg-accent/20'
+                        ? 'border-primary/35 bg-primary/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
+                        : 'border-border/60 bg-background/32'
                     )}
                   >
                     <div className="space-y-3">
@@ -503,10 +503,10 @@ export function ChatWorkspace({
                           }
                         }}
                         className={cn(
-                          'bg-background w-full rounded-xl border px-3 py-2 text-sm outline-none',
+                          'w-full rounded-xl border bg-background/70 px-3 py-2 text-sm outline-none',
                           activeConversationId === conversation.id
-                            ? 'border-background/30 text-foreground'
-                            : 'border-border/70'
+                            ? 'border-primary/30 text-foreground'
+                            : 'border-border/60'
                         )}
                         placeholder="输入会话名称"
                       />
@@ -547,8 +547,8 @@ export function ChatWorkspace({
                     className={cn(
                       'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
                       activeConversationId === conversation.id
-                        ? 'border-foreground/15 bg-foreground text-background'
-                        : 'border-border/70 bg-accent/20 hover:bg-accent',
+                        ? 'border-primary/35 bg-primary/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
+                        : 'border-border/60 bg-background/32 hover:border-primary/16 hover:bg-background/44',
                       sessionActive && 'cursor-not-allowed opacity-60'
                     )}
                   >
@@ -558,7 +558,7 @@ export function ChatWorkspace({
                         className={cn(
                           'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] uppercase',
                           activeConversationId === conversation.id
-                            ? 'bg-background/12 text-background/80'
+                            ? 'bg-primary/12 text-primary'
                             : 'bg-background text-muted-foreground'
                         )}
                       >
@@ -569,7 +569,7 @@ export function ChatWorkspace({
                       className={cn(
                         'mt-2 line-clamp-2 text-xs leading-5',
                         activeConversationId === conversation.id
-                          ? 'text-background/72'
+                          ? 'text-foreground/75'
                           : 'text-muted-foreground'
                       )}
                     >

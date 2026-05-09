@@ -36,7 +36,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="bg-background text-foreground min-h-svh">
       <div className="grid min-h-svh grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-sidebar-border bg-sidebar/90 border-b px-5 py-6 lg:border-r lg:border-b-0">
+        <aside className="border-sidebar-border/60 border-b bg-accent/10 px-5 py-6 backdrop-blur-xl lg:border-r lg:border-b-0">
           <div className="mb-8">
             <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">
               销售助手
@@ -62,15 +62,15 @@ export function AppShell({ children }: AppShellProps) {
                   className={cn(
                     'block rounded-2xl border px-4 py-4 transition-colors',
                     active
-                      ? 'border-foreground/15 bg-foreground text-background'
-                      : 'border-transparent bg-transparent hover:border-border hover:bg-accent'
+                      ? 'border-primary/35 bg-primary/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
+                      : 'border-transparent bg-transparent hover:border-primary/16 hover:bg-background/40'
                   )}
                 >
                   <div className="flex items-start gap-3">
                     <div
                       className={cn(
                         'mt-0.5 rounded-xl p-2',
-                        active ? 'bg-background/12' : 'bg-accent'
+                        active ? 'bg-primary/12 text-primary' : 'bg-background/45'
                       )}
                     >
                       <Icon className="size-4" />
@@ -80,7 +80,7 @@ export function AppShell({ children }: AppShellProps) {
                       <p
                         className={cn(
                           'mt-1 text-sm leading-5',
-                          active ? 'text-background/72' : 'text-muted-foreground'
+                          active ? 'text-foreground/75' : 'text-muted-foreground'
                         )}
                       >
                         {item.description}
@@ -92,7 +92,7 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </nav>
 
-          <div className="border-sidebar-border bg-background/70 mt-8 rounded-3xl border p-4">
+          <div className="border-sidebar-border/60 mt-8 rounded-3xl border bg-background/36 p-4">
             <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
               知识栈
             </p>
