@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { TokenSource } from 'livekit-client';
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
@@ -11,7 +11,7 @@ import { ViewController } from '@/components/app/view-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
-import { getAppTokenSource, getSandboxTokenSource } from '@/lib/utils';
+import { getSandboxTokenSource, requestAppConnectionDetails } from '@/lib/utils';
 
 const IN_DEVELOPMENT = process.env.NODE_ENV !== 'production';
 
@@ -26,14 +26,30 @@ interface AppProps {
   appConfig: AppConfig;
 }
 
+type PendingSessionConfig = {
+  sessionMode: 'text' | 'voice';
+  knowledgeBaseId: string | null;
+};
+
 export function App({ appConfig }: AppProps) {
   const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('voice');
   const [activeKnowledgeBaseId, setActiveKnowledgeBaseId] = useState<string | null>(null);
+  const pendingSessionConfigRef = useRef<PendingSessionConfig>({
+    sessionMode: 'voice',
+    knowledgeBaseId: null,
+  });
   const tokenSource = useMemo(() => {
     return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
       ? getSandboxTokenSource(appConfig)
-      : getAppTokenSource(appConfig, sessionMode, activeKnowledgeBaseId);
-  }, [appConfig, sessionMode, activeKnowledgeBaseId]);
+      : TokenSource.literal(async () => {
+          const pending = pendingSessionConfigRef.current;
+          return requestAppConnectionDetails(
+            appConfig,
+            pending.sessionMode,
+            pending.knowledgeBaseId
+          );
+        });
+  }, [appConfig]);
 
   const session = useSession(
     tokenSource,
@@ -50,6 +66,12 @@ export function App({ appConfig }: AppProps) {
           onSessionModeChange={setSessionMode}
           activeKnowledgeBaseId={activeKnowledgeBaseId}
           onActiveKnowledgeBaseIdChange={setActiveKnowledgeBaseId}
+          onPrepareSessionStart={(nextMode, nextKnowledgeBaseId) => {
+            pendingSessionConfigRef.current = {
+              sessionMode: nextMode,
+              knowledgeBaseId: nextKnowledgeBaseId,
+            };
+          }}
         />
       </main>
       {sessionMode === 'voice' ? <StartAudioButton label="启用音频播放" /> : null}

@@ -35,6 +35,7 @@ interface ViewControllerProps {
   onSessionModeChange: (mode: 'text' | 'voice') => void;
   activeKnowledgeBaseId: string | null;
   onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
+  onPrepareSessionStart: (mode: 'text' | 'voice', kbId: string | null) => void;
 }
 
 export function ViewController({
@@ -43,6 +44,7 @@ export function ViewController({
   onSessionModeChange,
   activeKnowledgeBaseId,
   onActiveKnowledgeBaseIdChange,
+  onPrepareSessionStart,
 }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
@@ -72,6 +74,7 @@ export function ViewController({
       return;
     }
 
+    onPrepareSessionStart('text', activeKnowledgeBaseId);
     onSessionModeChange('text');
     void start({
       tracks: {
@@ -87,6 +90,7 @@ export function ViewController({
       return;
     }
 
+    onPrepareSessionStart('voice', activeKnowledgeBaseId);
     onSessionModeChange('voice');
     void start();
   };

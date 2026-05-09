@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -9,6 +10,8 @@ from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
+    ChatContext,
+    ChatMessage,
     JobContext,
     JobProcess,
     RunContext,
@@ -32,6 +35,7 @@ retrieval_service = RetrievalService(
     chroma_root=settings.kb_data_dir / "chroma",
 )
 server = AgentServer()
+logger = logging.getLogger("livekit_sales_agent.agent")
 
 
 @dataclass
@@ -66,6 +70,13 @@ class SalesAgent(Agent):
             add_to_chat_ctx=True,
         )
 
+    async def on_user_turn_completed(
+        self,
+        turn_ctx: ChatContext,
+        new_message: ChatMessage,
+    ) -> None:
+        self._inject_retrieval_context(turn_ctx, query=(new_message.text_content or "").strip())
+
     @function_tool()
     async def search_knowledge_base(
         self,
@@ -78,6 +89,9 @@ class SalesAgent(Agent):
             query: The user's question rewritten as a concise retrieval query.
         """
         del context
+        return self._search_knowledge_base(query)
+
+    def _search_knowledge_base(self, query: str) -> str:
         kb_id = self._metadata.knowledge_base_id
         if not kb_id:
             return "当前会话没有绑定知识库。"
@@ -90,13 +104,88 @@ class SalesAgent(Agent):
         if not results:
             return "没有检索到相关知识。"
 
+        return self._format_search_results(results)
+
+    def _build_rag_context(self, *, query: str, results: list[dict[str, object]]) -> str:
+        return (
+            "以下是系统基于当前用户问题自动检索到的知识库片段。"
+            "请优先依据这些片段作答，不要脱离片段编造事实。"
+            "如果片段仍不足以支持结论，就明确说明知识库信息不足。\n\n"
+            f"用户问题：{query}\n\n"
+            f"{self._format_search_results(results)}"
+        )
+
+    def build_turn_chat_context(self, query: str) -> ChatContext:
+        turn_ctx = self.chat_ctx.copy()
+        self._inject_retrieval_context(turn_ctx, query=query)
+        return turn_ctx
+
+    def _inject_retrieval_context(self, turn_ctx: ChatContext, *, query: str) -> None:
+        kb_id = self._metadata.knowledge_base_id
+        query = query.strip()
+        if not kb_id or not query:
+            return
+
+        try:
+            results = retrieval_service.search(kb_id=kb_id, query=query)
+        except Exception as exc:
+            logger.exception(
+                "knowledge retrieval failed",
+                extra={"kb_id": kb_id, "query": query},
+            )
+            turn_ctx.add_message(
+                role="developer",
+                content=(
+                    "当前会话已绑定知识库，但本回合检索失败。"
+                    f"错误：{exc}。"
+                    "不要编造知识库内容，直接说明当前无法从知识库读取到相关资料。"
+                ),
+            )
+            return
+
+        logger.info(
+            "knowledge retrieval completed",
+            extra={
+                "kb_id": kb_id,
+                "query": query,
+                "result_count": len(results),
+            },
+        )
+
+        if not results:
+            turn_ctx.add_message(
+                role="developer",
+                content=(
+                    "当前会话已绑定知识库，但本回合没有检索到相关片段。"
+                    "不要猜测答案，直接说明当前知识库没有足够信息。"
+                ),
+            )
+            return
+
+        turn_ctx.add_message(
+            role="developer",
+            content=self._build_rag_context(query=query, results=results),
+        )
+
+    def _format_search_results(self, results: list[dict[str, object]]) -> str:
         parts: list[str] = []
         for index, result in enumerate(results, start=1):
             metadata = result.get("metadata") or {}
-            title = metadata.get("title", "片段")
-            source = metadata.get("source_path", "")
+            title = str(metadata.get("title") or "片段")
+            source = str(metadata.get("source_path") or "")
+            category = str(metadata.get("category_name") or metadata.get("category") or "")
             content = str(result.get("content", "")).strip()
-            parts.append(f"[{index}] {title}\n来源：{source}\n{content}")
+            distance = result.get("distance")
+
+            lines = [f"[{index}] {title}"]
+            if source:
+                lines.append(f"来源：{source}")
+            if category:
+                lines.append(f"分类：{category}")
+            if distance is not None:
+                lines.append(f"相似度距离：{distance}")
+            lines.append(content)
+            parts.append("\n".join(lines))
         return "\n\n".join(parts)
 
 
@@ -120,6 +209,33 @@ def build_session(proc: JobProcess, metadata: SessionMetadata) -> AgentSession:
     return AgentSession(**session_kwargs)
 
 
+async def handle_text_input(
+    session: AgentSession,
+    event: room_io.TextInputEvent,
+    agent: SalesAgent,
+) -> None:
+    query = event.text.strip()
+    if not query:
+        return
+
+    logger.info(
+        "handling text input",
+        extra={
+            "session_mode": agent._metadata.session_mode,
+            "knowledge_base_id": agent._metadata.knowledge_base_id,
+            "query": query,
+        },
+    )
+
+    await session.interrupt()
+    turn_ctx = agent.build_turn_chat_context(query)
+    session.generate_reply(
+        user_input=query,
+        chat_ctx=turn_ctx,
+        input_modality="text",
+    )
+
+
 def parse_session_metadata(ctx: JobContext) -> SessionMetadata:
     metadata_text = _extract_agent_metadata(ctx)
     if not metadata_text:
@@ -136,6 +252,10 @@ def parse_session_metadata(ctx: JobContext) -> SessionMetadata:
 
 def _extract_agent_metadata(ctx: JobContext) -> Optional[str]:
     candidates = []
+
+    job = getattr(ctx, "job", None)
+    if job is not None:
+        candidates.append(getattr(job, "metadata", None))
 
     info = getattr(ctx, "_info", None)
     if info is not None:
@@ -165,10 +285,24 @@ def _optional_str(value: object) -> Optional[str]:
 
 @server.rtc_session(agent_name=settings.agent_name)
 async def entrypoint(ctx: JobContext) -> None:
+    raw_metadata = _extract_agent_metadata(ctx)
     metadata = parse_session_metadata(ctx)
+    job_metadata = getattr(getattr(ctx, "job", None), "metadata", None)
+    logger.info(
+        "starting agent session",
+        extra={
+            "session_mode": metadata.session_mode,
+            "knowledge_base_id": metadata.knowledge_base_id,
+            "raw_metadata": raw_metadata,
+            "job_metadata": job_metadata,
+        },
+    )
     session = build_session(ctx.proc, metadata)
     agent = SalesAgent(settings, metadata)
     room_options = room_io.RoomOptions(
+        text_input=room_io.TextInputOptions(
+            text_input_cb=lambda sess, ev: handle_text_input(sess, ev, agent)
+        ),
         audio_input=False
         if metadata.is_text_mode or not settings.stt_descriptor
         else room_io.AudioInputOptions(),

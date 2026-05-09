@@ -178,26 +178,36 @@ export function getAppTokenSource(
   sessionMode: 'text' | 'voice',
   knowledgeBaseId?: string | null
 ) {
-  return TokenSource.custom(async () => {
-    const participantMetadata = JSON.stringify({
-      session_mode: sessionMode,
-      knowledge_base_id: knowledgeBaseId ?? null,
-    });
+  return TokenSource.custom(async () =>
+    requestAppConnectionDetails(appConfig, sessionMode, knowledgeBaseId)
+  );
+}
 
-    const res = await fetch('/api/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        participant_metadata: participantMetadata,
-      }),
-    });
+export async function requestAppConnectionDetails(
+  appConfig: AppConfig,
+  sessionMode: 'text' | 'voice',
+  knowledgeBaseId?: string | null
+) {
+  void appConfig;
 
-    if (!res.ok) {
-      throw new Error(await res.text());
-    }
-
-    return await res.json();
+  const participantMetadata = JSON.stringify({
+    session_mode: sessionMode,
+    knowledge_base_id: knowledgeBaseId ?? null,
   });
+
+  const res = await fetch('/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      participant_metadata: participantMetadata,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return await res.json();
 }
