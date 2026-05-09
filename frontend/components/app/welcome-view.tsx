@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { FieldSelect } from '@/components/ui/field-select';
 
 function WelcomeImage() {
   return (
@@ -50,18 +51,15 @@ export const WelcomeView = ({
 
         <div className="mt-5 w-full max-w-md text-left">
           <label className="mb-2 block text-sm font-medium">当前会话知识库</label>
-          <select
+          <FieldSelect
             value={activeKnowledgeBaseId ?? ''}
-            onChange={(e) => onActiveKnowledgeBaseIdChange?.(e.target.value || null)}
-            className="bg-background w-full rounded-2xl border px-4 py-3 text-sm outline-none"
-          >
-            <option value="">不绑定知识库</option>
-            {knowledgeBases.map((kb) => (
-              <option key={kb.id} value={kb.id}>
-                {kb.name}
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => onActiveKnowledgeBaseIdChange?.(value || null)}
+            placeholder="不绑定知识库"
+            options={knowledgeBases.map((kb) => ({
+              value: kb.id,
+              label: kb.name,
+            }))}
+          />
         </div>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">

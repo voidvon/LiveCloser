@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCcw, Search, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FieldSelect } from '@/components/ui/field-select';
+import { Input } from '@/components/ui/input';
+import { InteractiveCard } from '@/components/ui/interactive-card';
+import { Surface } from '@/components/ui/surface';
+import { Textarea } from '@/components/ui/textarea';
 
 type KnowledgeBase = {
   id: string;
@@ -324,13 +329,17 @@ export function KbPageClient() {
         </div>
 
         {error ? (
-          <div className="mb-6 rounded-3xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+          <Surface
+            className="mb-6 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+            variant="muted"
+            radius="lg"
+          >
             {error}
-          </div>
+          </Surface>
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-          <section className="bg-card/80 border-border rounded-[28px] border p-4 backdrop-blur">
+          <Surface padding="md">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">知识库列表</h2>
@@ -339,71 +348,64 @@ export function KbPageClient() {
               <span className="font-mono text-xs">{knowledgeBases.length}</span>
             </div>
 
-            <div className="mb-4 rounded-3xl border border-dashed p-4">
+            <Surface className="mb-4 border-dashed" variant="muted" radius="lg" padding="md">
               <h3 className="mb-3 font-medium">新建知识库</h3>
               <div className="space-y-3">
-                <input
+                <Input
                   value={kbForm.name}
                   onChange={(e) => setKbForm((current) => ({ ...current, name: e.target.value }))}
                   placeholder="知识库名称"
-                  className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                 />
-                <textarea
+                <Textarea
                   value={kbForm.description}
                   onChange={(e) =>
                     setKbForm((current) => ({ ...current, description: e.target.value }))
                   }
                   placeholder="描述这个知识库的用途"
-                  className="bg-background min-h-20 w-full rounded-2xl border px-3 py-2 text-sm outline-none"
+                  className="min-h-20"
                 />
-                <input
+                <Input
                   value={kbForm.embedding_model}
                   onChange={(e) =>
                     setKbForm((current) => ({ ...current, embedding_model: e.target.value }))
                   }
                   placeholder="Embedding 模型，例如 text-embedding-3-large"
-                  className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                 />
-                <input
+                <Input
                   value={kbForm.embedding_base_url}
                   onChange={(e) =>
                     setKbForm((current) => ({ ...current, embedding_base_url: e.target.value }))
                   }
                   placeholder="Embedding Base URL"
-                  className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                 />
-                <input
+                <Input
                   value={kbForm.embedding_api_key_env}
                   onChange={(e) =>
                     setKbForm((current) => ({ ...current, embedding_api_key_env: e.target.value }))
                   }
-                  placeholder="API Key，支持直接填写，或填写环境变量名"
-                  className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
+                  placeholder="Embedding API Key"
                 />
                 <div className="grid grid-cols-3 gap-2">
-                  <input
+                  <Input
                     value={kbForm.chunk_size}
                     onChange={(e) =>
                       setKbForm((current) => ({ ...current, chunk_size: e.target.value }))
                     }
                     placeholder="切块大小"
-                    className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                   />
-                  <input
+                  <Input
                     value={kbForm.chunk_overlap}
                     onChange={(e) =>
                       setKbForm((current) => ({ ...current, chunk_overlap: e.target.value }))
                     }
                     placeholder="重叠"
-                    className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                   />
-                  <input
+                  <Input
                     value={kbForm.retrieval_top_k}
                     onChange={(e) =>
                       setKbForm((current) => ({ ...current, retrieval_top_k: e.target.value }))
                     }
                     placeholder="Top K"
-                    className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
                   />
                 </div>
                 <Button className="w-full rounded-full" onClick={() => void handleCreateKnowledgeBase()} disabled={creatingKb}>
@@ -411,7 +413,7 @@ export function KbPageClient() {
                   {creatingKb ? '创建中...' : '新建知识库'}
                 </Button>
               </div>
-            </div>
+            </Surface>
 
             <div className="space-y-3">
               {state === 'loading' ? <KbGhost lines={4} /> : null}
@@ -424,35 +426,37 @@ export function KbPageClient() {
               {knowledgeBases.map((kb) => {
                 const active = kb.id === selectedKbId;
                 return (
-                  <button
+                  <InteractiveCard
                     key={kb.id}
-                    type="button"
                     onClick={() => setSelectedKbId(kb.id)}
-                    className={`w-full rounded-3xl border p-4 text-left transition-colors ${
-                      active
-                        ? 'border-foreground/15 bg-foreground text-background'
-                        : 'border-border bg-background hover:bg-accent'
-                    }`}
+                    role="button"
+                    tabIndex={0}
+                    variant={active ? 'selected' : 'default'}
+                    radius="lg"
+                    padding="lg"
+                    className="cursor-pointer"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedKbId(kb.id);
+                      }
+                    }}
                   >
                     <p className="font-medium">{kb.name}</p>
-                    <p
-                      className={`mt-2 text-sm leading-5 ${
-                        active ? 'text-background/72' : 'text-muted-foreground'
-                      }`}
-                    >
+                    <p className={`mt-2 text-sm leading-5 ${active ? 'text-foreground/75' : 'text-muted-foreground'}`}>
                       {kb.description || '暂无描述。'}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em]">
                       <span>{kb.embedding_provider}</span>
                       <span>{kb.embedding_model || '待配置模型'}</span>
                     </div>
-                  </button>
+                  </InteractiveCard>
                 );
               })}
             </div>
-          </section>
+          </Surface>
 
-          <section className="bg-card/80 border-border rounded-[28px] border p-4 backdrop-blur">
+          <Surface padding="md">
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
               <div>
                 <h2 className="text-lg font-semibold">{selectedKb?.name ?? '文件'}</h2>
@@ -480,16 +484,16 @@ export function KbPageClient() {
             ) : (
               <div className="space-y-5">
                 <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-                  <div className="rounded-3xl border border-dashed p-4">
+                  <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
                     <div className="mb-3 flex items-center justify-between">
                       <h3 className="font-medium">分类</h3>
                     </div>
                     <div className="mb-3 flex gap-2">
-                      <input
+                      <Input
                         value={categoryName}
                         onChange={(e) => setCategoryName(e.target.value)}
                         placeholder="输入分类名称"
-                        className="bg-background min-w-0 flex-1 rounded-2xl border px-3 py-2 text-sm outline-none"
+                        className="min-w-0 flex-1"
                       />
                       <Button
                         variant="outline"
@@ -509,33 +513,33 @@ export function KbPageClient() {
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {categories.map((category) => (
-                          <span key={category.id} className="bg-accent rounded-full px-3 py-1 text-sm">
+                          <span
+                            key={category.id}
+                            className="rounded-full border border-primary/18 bg-primary/10 px-3 py-1 text-sm"
+                          >
                             {category.name}
                           </span>
                         ))}
                       </div>
                     )}
-                  </div>
+                  </Surface>
 
-                  <div className="rounded-3xl border border-dashed p-4">
+                  <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
                     <h3 className="mb-3 font-medium">上传文件</h3>
                     <div className="space-y-3">
-                      <select
+                      <FieldSelect
                         value={uploadCategoryId}
-                        onChange={(e) => setUploadCategoryId(e.target.value)}
-                        className="bg-background w-full rounded-2xl border px-3 py-2 text-sm outline-none"
-                      >
-                        <option value="">未分类</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
+                        onValueChange={setUploadCategoryId}
+                        placeholder="未分类"
+                        options={categories.map((category) => ({
+                          value: category.id,
+                          label: category.name,
+                        }))}
+                      />
                       <input
                         type="file"
                         onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                        className="bg-background block w-full rounded-2xl border px-3 py-2 text-sm outline-none"
+                        className="border-border/60 bg-background/60 hover:border-primary/20 focus:border-primary/30 block w-full rounded-2xl border px-3 py-2 text-sm outline-none transition-colors"
                       />
                       <Button
                         className="w-full rounded-full"
@@ -546,12 +550,12 @@ export function KbPageClient() {
                         {uploading ? '上传中...' : '上传并触发索引'}
                       </Button>
                     </div>
-                  </div>
+                  </Surface>
                 </div>
 
-                <div className="overflow-hidden rounded-3xl border">
+                <Surface className="overflow-hidden" radius="lg">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-accent/70">
+                    <thead className="bg-background/44">
                       <tr>
                         <th className="px-4 py-3 font-medium">文件</th>
                         <th className="px-4 py-3 font-medium">类型</th>
@@ -569,12 +573,12 @@ export function KbPageClient() {
                         </tr>
                       ) : (
                         files.map((file) => (
-                          <tr key={file.id} className="border-t">
+                          <tr key={file.id} className="border-t border-border/60">
                             <td className="px-4 py-3">{file.original_name}</td>
                             <td className="px-4 py-3">{file.mime_type || '-'}</td>
                             <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
                             <td className="px-4 py-3">
-                              <span className="rounded-full bg-accent px-2.5 py-1 text-xs uppercase">
+                              <span className="rounded-full border border-primary/18 bg-primary/10 px-2.5 py-1 text-xs uppercase">
                                 {file.status}
                               </span>
                             </td>
@@ -598,13 +602,13 @@ export function KbPageClient() {
                       )}
                     </tbody>
                   </table>
-                </div>
+                </Surface>
               </div>
             )}
-          </section>
+          </Surface>
 
           <section className="space-y-4">
-            <div className="bg-card/80 border-border rounded-[28px] border p-4 backdrop-blur">
+            <Surface padding="md">
               <h2 className="text-lg font-semibold">Embedding 配置</h2>
               {!selectedKb ? (
                 <p className="text-muted-foreground mt-3 text-sm">选择一个知识库后，可在这里查看当前配置。</p>
@@ -622,17 +626,17 @@ export function KbPageClient() {
                   <ConfigRow label="召回数量" value={String(selectedKb.retrieval_top_k)} />
                 </div>
               )}
-            </div>
+            </Surface>
 
-            <div className="bg-card/80 border-border rounded-[28px] border p-4 backdrop-blur">
+            <Surface padding="md">
               <h2 className="text-lg font-semibold">知识检索调试</h2>
               <div className="mt-4 space-y-3">
                 <div className="flex gap-2">
-                  <input
+                  <Input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="输入一个问题，测试当前知识库的召回结果"
-                    className="bg-background min-w-0 flex-1 rounded-2xl border px-3 py-2 text-sm outline-none"
+                    className="min-w-0 flex-1"
                   />
                   <Button
                     variant="outline"
@@ -650,7 +654,12 @@ export function KbPageClient() {
                 ) : (
                   <div className="space-y-3">
                     {searchResults.map((result, index) => (
-                      <div key={`${result.metadata?.file_id ?? 'file'}-${index}`} className="rounded-2xl border px-3 py-3">
+                      <InteractiveCard
+                        key={`${result.metadata?.file_id ?? 'file'}-${index}`}
+                        variant="default"
+                        radius="lg"
+                        padding="md"
+                      >
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-medium">{result.metadata?.title ?? '片段'}</p>
                           <span className="font-mono text-[11px]">
@@ -660,24 +669,24 @@ export function KbPageClient() {
                         <p className="text-muted-foreground mt-2 text-sm leading-6">
                           {result.content}
                         </p>
-                      </div>
+                      </InteractiveCard>
                     ))}
                   </div>
                 )}
               </div>
-            </div>
+            </Surface>
 
-            <div className="bg-card/80 border-border rounded-[28px] border p-4 backdrop-blur">
+            <Surface padding="md">
               <h2 className="text-lg font-semibold">索引任务</h2>
               <div className="mt-4 space-y-3">
                 {jobs.length === 0 ? (
                   <p className="text-muted-foreground text-sm">还没有任务。</p>
                 ) : (
                   jobs.map((job) => (
-                    <div key={job.id} className="rounded-2xl border px-3 py-3">
+                    <InteractiveCard key={job.id} variant="default" radius="lg" padding="md">
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium">{job.job_type}</p>
-                        <span className="rounded-full bg-accent px-2.5 py-1 text-[11px] uppercase tracking-[0.18em]">
+                        <span className="rounded-full border border-primary/18 bg-primary/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em]">
                           {job.status}
                         </span>
                       </div>
@@ -689,11 +698,11 @@ export function KbPageClient() {
                           错误：{job.error_message}
                         </p>
                       ) : null}
-                    </div>
+                    </InteractiveCard>
                   ))
                 )}
               </div>
-            </div>
+            </Surface>
           </section>
         </div>
       </div>
@@ -703,21 +712,21 @@ export function KbPageClient() {
 
 function ConfigRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border px-3 py-3">
+    <InteractiveCard variant="default" radius="lg" padding="md" className="flex items-center justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-xs">{value}</span>
-    </div>
+    </InteractiveCard>
   );
 }
 
 function EmptyBlock({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-3xl border border-dashed px-4 py-8 text-center">
+    <Surface className="border-dashed px-4 py-8 text-center" variant="muted" radius="lg">
       <p className="font-medium">{title}</p>
       <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-6">
         {description}
       </p>
-    </div>
+    </Surface>
   );
 }
 
@@ -725,7 +734,12 @@ function KbGhost({ lines }: { lines: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: lines }).map((_, index) => (
-        <div key={index} className="bg-accent h-24 animate-pulse rounded-3xl" />
+        <Surface
+          key={index}
+          className="h-24 animate-pulse"
+          variant="muted"
+          radius="lg"
+        />
       ))}
     </div>
   );

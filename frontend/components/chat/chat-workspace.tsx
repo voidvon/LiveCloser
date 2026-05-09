@@ -13,7 +13,10 @@ import {
   AgentSessionView_01,
   type AgentSessionView_01Props,
 } from '@/components/agents-ui/blocks/agent-session-view-01';
+import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Button } from '@/components/ui/button';
+import { FieldSelect } from '@/components/ui/field-select';
+import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/shadcn/utils';
 import type {
   ConversationMessageRecord,
@@ -325,7 +328,7 @@ export function ChatWorkspace({
   }
 
   function handleConversationContextMenu(
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: React.MouseEvent<HTMLElement>,
     conversation: ConversationRecord
   ) {
     if (sessionActive) {
@@ -421,7 +424,7 @@ export function ChatWorkspace({
 
   return (
     <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
-      <aside className="flex w-full shrink-0 flex-col overflow-hidden rounded-[28px] border border-border/60 bg-accent/10 backdrop-blur-xl lg:w-[320px]">
+      <Surface className="flex w-full shrink-0 flex-col overflow-hidden lg:w-[320px]" variant="sidebar">
         <div className="border-border/70 flex items-center justify-between border-b px-4 py-4">
           <div>
             <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
@@ -450,42 +453,42 @@ export function ChatWorkspace({
 
         <div className="border-border/70 border-b px-4 py-4">
           <label className="mb-2 block text-sm font-medium">当前会话知识库</label>
-          <select
+          <FieldSelect
             value={activeKnowledgeBaseId ?? ''}
-            onChange={(e) => onActiveKnowledgeBaseIdChange(e.target.value || null)}
+            onValueChange={(value) => onActiveKnowledgeBaseIdChange(value || null)}
             disabled={sessionActive}
-            className="w-full rounded-2xl border border-border/60 bg-background/55 px-4 py-3 text-sm outline-none transition-colors hover:border-primary/20 focus:border-primary/30"
-          >
-            <option value="">不绑定知识库</option>
-            {knowledgeBases.map((kb) => (
-              <option key={kb.id} value={kb.id}>
-                {kb.name}
-              </option>
-            ))}
-          </select>
+            placeholder="不绑定知识库"
+            options={knowledgeBases.map((kb) => ({
+              value: kb.id,
+              label: kb.name,
+            }))}
+          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-2">
             {loadingConversations ? (
-              <div className="text-muted-foreground rounded-2xl border border-dashed border-border/50 bg-background/30 px-4 py-6 text-sm">
+              <Surface
+                className="text-muted-foreground border-dashed px-4 py-6 text-sm"
+                variant="muted"
+                radius="lg"
+              >
                 正在加载会话列表…
-              </div>
+              </Surface>
             ) : conversations.length === 0 ? (
-              <div className="text-muted-foreground rounded-2xl border border-dashed border-border/50 bg-background/30 px-4 py-6 text-sm leading-6">
+              <Surface
+                className="text-muted-foreground border-dashed px-4 py-6 text-sm leading-6"
+                variant="muted"
+                radius="lg"
+              >
                 还没有历史会话。先新建一个会话，再选择消息或语音方式开始。
-              </div>
+              </Surface>
             ) : (
               conversations.map((conversation) => (
                 renamingConversationId === conversation.id ? (
-                  <div
+                  <InteractiveCard
                     key={conversation.id}
-                    className={cn(
-                      'w-full rounded-2xl border px-4 py-3 text-left',
-                      activeConversationId === conversation.id
-                        ? 'border-primary/35 bg-primary/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
-                        : 'border-border/60 bg-background/32'
-                    )}
+                    variant={activeConversationId === conversation.id ? 'selected' : 'default'}
                   >
                     <div className="space-y-3">
                       <input
@@ -536,19 +539,27 @@ export function ChatWorkspace({
                         </Button>
                       </div>
                     </div>
-                  </div>
+                  </InteractiveCard>
                 ) : (
-                  <button
+                  <InteractiveCard
                     key={conversation.id}
-                    type="button"
                     onClick={() => handleSelectConversation(conversation.id)}
                     onContextMenu={(event) => handleConversationContextMenu(event, conversation)}
-                    disabled={sessionActive}
+                    role="button"
+                    tabIndex={sessionActive ? -1 : 0}
+                    aria-disabled={sessionActive}
+                    onKeyDown={(event) => {
+                      if (sessionActive) {
+                        return;
+                      }
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleSelectConversation(conversation.id);
+                      }
+                    }}
+                    variant={activeConversationId === conversation.id ? 'selected' : 'default'}
                     className={cn(
-                      'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
-                      activeConversationId === conversation.id
-                        ? 'border-primary/35 bg-primary/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
-                        : 'border-border/60 bg-background/32 hover:border-primary/16 hover:bg-background/44',
+                      'cursor-pointer',
                       sessionActive && 'cursor-not-allowed opacity-60'
                     )}
                   >
@@ -575,15 +586,15 @@ export function ChatWorkspace({
                     >
                       {conversation.last_message_preview || '还没有消息'}
                     </p>
-                  </button>
+                  </InteractiveCard>
                 )
               ))
             )}
           </div>
         </div>
-      </aside>
+      </Surface>
 
-      <div className="bg-background flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-border/70">
+      <Surface className="flex min-h-0 flex-1 flex-col overflow-hidden" variant="panel">
         <AgentSessionView_01
           {...sessionViewConfig}
           initialChatOpen={sessionMode === 'text'}
@@ -599,12 +610,14 @@ export function ChatWorkspace({
           startDisabledReason={startDisabledReason}
           className="h-full w-full flex-1 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
         />
-      </div>
+      </Surface>
 
       {contextMenu && contextMenuConversation ? (
-        <div
+        <Surface
           ref={contextMenuRef}
-          className="bg-background fixed z-50 min-w-[168px] rounded-2xl border border-border/80 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]"
+          className="fixed z-50 min-w-[168px] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]"
+          variant="overlay"
+          radius="lg"
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -626,7 +639,7 @@ export function ChatWorkspace({
             <Trash2 className="size-4" />
             <span>删除会话</span>
           </button>
-        </div>
+        </Surface>
       ) : null}
     </section>
   );
