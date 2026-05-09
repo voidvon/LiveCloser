@@ -14,6 +14,7 @@ import {
 } from '@/components/agents-ui/agent-control-bar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Surface } from '@/components/ui/surface';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
@@ -256,9 +257,14 @@ export function AgentSessionView_01({
           screenShare: supportsScreenShare,
         };
 
+  const hasTopAlert = Boolean(viewError || startDisabledReason);
+
   const transcriptPanelClassName =
     sessionMode === 'voice'
-      ? 'mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6'
+      ? cn(
+          'mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 md:[&>div>div]:px-6',
+          hasTopAlert ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24' : '[&>div>div]:pt-6'
+        )
       : 'h-full min-h-0 [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6';
 
   if (sessionMode === 'text') {
@@ -266,34 +272,11 @@ export function AgentSessionView_01({
       <section
         ref={ref}
         className={cn(
-          'bg-background relative z-10 flex h-full min-h-0 w-full max-h-full flex-col overflow-hidden',
+          'relative z-10 flex h-full min-h-0 w-full max-h-full flex-col overflow-hidden',
           className
         )}
         {...props}
       >
-        <div className="border-border/70 shrink-0 border-b px-5 py-4">
-          <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
-            当前会话
-          </p>
-          <h2 className="mt-1 truncate text-xl font-semibold tracking-tight">
-            {activeConversationTitle ?? '请选择或新建会话'}
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {isPreSession
-              ? '开始前先查看历史消息。启动后会在同一界面继续对话。'
-              : '当前为纯文字会话模式，不会启用录音，也不会播放语音。'}
-          </p>
-          {loadingMessages ? (
-            <div className="mt-3 overflow-hidden rounded-full bg-border/60">
-              <motion.div
-                className="h-1 w-1/3 rounded-full bg-foreground/80"
-                animate={{ x: ['-20%', '260%'] }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            </div>
-          ) : null}
-        </div>
-
         {viewError ? (
           <div className="px-5 pt-4">
             <Alert variant="destructive">
@@ -320,7 +303,7 @@ export function AgentSessionView_01({
             <h2 className="mt-2 text-2xl font-semibold tracking-tight">消息对话</h2>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden rounded-[24px] border border-border/70 bg-accent/25">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {!activeConversationId ? (
               <div className="text-muted-foreground flex h-full min-h-[240px] items-center justify-center px-6 text-sm">
                 先从左侧新建或选择一个会话。
@@ -358,7 +341,11 @@ export function AgentSessionView_01({
         <div className="relative shrink-0 px-4 pb-4 pt-3 md:px-8 md:pb-8">
           {isPreSession ? (
             <div className="pointer-events-none absolute inset-x-4 bottom-[60px] z-[80] flex justify-center md:inset-x-8 md:bottom-[72px]">
-              <div className="pointer-events-auto flex flex-col gap-2 rounded-full border border-border/70 bg-background/96 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur sm:flex-row">
+              <Surface
+                className="pointer-events-auto flex flex-col gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:flex-row"
+                variant="overlay"
+                radius="full"
+              >
                 <Button
                   variant="outline"
                   onClick={onStartTextChat}
@@ -376,7 +363,7 @@ export function AgentSessionView_01({
                   <Phone className="mr-2 size-4" />
                   语音对话
                 </Button>
-              </div>
+              </Surface>
             </div>
           ) : null}
           <AgentControlBar
@@ -396,39 +383,15 @@ export function AgentSessionView_01({
     <section
       ref={ref}
       className={cn(
-        'bg-background relative z-10 h-full min-h-0 w-full max-h-full overflow-hidden',
+        'relative z-10 h-full min-h-0 w-full max-h-full overflow-hidden',
         className
       )}
       {...props}
     >
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20">
-        <div className="border-border/70 bg-background/92 border-b px-5 py-4 backdrop-blur">
-          <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
-            当前会话
-          </p>
-          <h2 className="mt-1 truncate text-xl font-semibold tracking-tight">
-            {activeConversationTitle ?? '请选择或新建会话'}
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {isPreSession
-              ? '开始前先查看历史消息。启动后会在同一界面继续对话。'
-              : '语音通话只保存最终文案，历史会和当前实时记录合并显示。'}
-          </p>
-          {loadingMessages ? (
-            <div className="mt-3 overflow-hidden rounded-full bg-border/60">
-              <motion.div
-                className="h-1 w-1/3 rounded-full bg-foreground/80"
-                animate={{ x: ['-20%', '260%'] }}
-                transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            </div>
-          ) : null}
-        </div>
-      </div>
 
       {viewError ? (
-        <div className="absolute inset-x-5 top-[104px] z-30 md:top-[112px]">
+        <div className="absolute inset-x-5 top-5 z-30">
           <Alert variant="destructive">
             <AlertTitle>操作失败</AlertTitle>
             <AlertDescription>{viewError}</AlertDescription>
@@ -437,7 +400,7 @@ export function AgentSessionView_01({
       ) : null}
 
       {startDisabledReason ? (
-        <div className="absolute inset-x-5 top-[104px] z-30 md:top-[112px]">
+        <div className="absolute inset-x-5 top-5 z-30">
           <Alert>
             <AlertTitle>当前无法启动会话</AlertTitle>
             <AlertDescription>{startDisabledReason}</AlertDescription>
@@ -455,15 +418,15 @@ export function AgentSessionView_01({
               className="flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
             >
               {!activeConversationId ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-40 text-sm md:px-0">
+                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
                   先从左侧新建或选择一个会话。
                 </div>
               ) : loadingMessages ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-40 text-sm md:px-0">
+                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
                   正在加载历史消息…
                 </div>
               ) : transcriptHistory.length === 0 && isPreSession ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-40 text-sm md:px-0">
+                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
                   当前会话还没有历史消息，点击下方按钮开始。
                 </div>
               ) : isPreSession ? (
@@ -472,7 +435,12 @@ export function AgentSessionView_01({
                     agentState={undefined}
                     messages={[]}
                     persistedMessages={transcriptHistory}
-                    className="mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px]"
+                    className={cn(
+                      'mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px]',
+                      hasTopAlert
+                        ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24'
+                        : '[&>div>div]:pt-6'
+                    )}
                   />
                 </div>
               ) : (
@@ -509,7 +477,11 @@ export function AgentSessionView_01({
       >
         {isPreSession ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-[58px] z-[80] flex justify-center">
-            <div className="pointer-events-auto flex flex-col gap-2 rounded-full border border-border/70 bg-background/96 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur sm:flex-row">
+            <Surface
+              className="pointer-events-auto flex flex-col gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:flex-row"
+              variant="overlay"
+              radius="full"
+            >
               <Button
                 variant="outline"
                 onClick={onStartTextChat}
@@ -523,7 +495,7 @@ export function AgentSessionView_01({
                 <Phone className="mr-2 size-4" />
                 语音对话
               </Button>
-            </div>
+            </Surface>
           </div>
         ) : null}
         {/* Pre-connect message */}
@@ -542,7 +514,7 @@ export function AgentSessionView_01({
             )}
           </AnimatePresence>
         )}
-        <div className="bg-background relative mx-auto max-w-2xl pb-3 md:pb-12">
+        <div className="relative mx-auto max-w-2xl bg-background/72 pb-3 backdrop-blur-xl md:pb-12">
           <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />
           <AgentControlBar
             variant="livekit"

@@ -1,5 +1,7 @@
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { FieldSelect } from '@/components/ui/field-select';
+import { Surface } from '@/components/ui/surface';
 
 function WelcomeImage() {
   return (
@@ -42,7 +44,10 @@ export const WelcomeView = ({
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
   return (
     <div ref={ref} className={className}>
-      <section className="bg-background flex flex-1 flex-col items-center justify-center rounded-[28px] border border-border/70 px-6 py-10 text-center shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+      <Surface
+        className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
+        variant="panel"
+      >
         <WelcomeImage />
 
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
@@ -83,11 +88,11 @@ export const WelcomeView = ({
         </div>
 
         {startDisabledReason ? (
-          <div className="mt-4 max-w-xl rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left text-sm leading-6 text-amber-900 dark:text-amber-100">
-            {startDisabledReason}
-          </div>
+          <Alert className="mt-4 max-w-xl text-left">
+            <AlertDescription className="text-sm leading-6">{startDisabledReason}</AlertDescription>
+          </Alert>
         ) : null}
-      </section>
+      </Surface>
     </div>
   );
 };

@@ -625,7 +625,7 @@ export function ChatWorkspace({
         >
           <button
             type="button"
-            className="hover:bg-accent flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
+            className="hover:bg-accent/80 hover:text-accent-foreground flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors"
             onClick={() => startRenameConversation(contextMenuConversation)}
           >
             <Pencil className="size-4" />
@@ -633,7 +633,7 @@ export function ChatWorkspace({
           </button>
           <button
             type="button"
-            className="hover:bg-destructive/8 text-destructive flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
+            className="hover:bg-destructive/10 text-destructive flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors"
             onClick={() => void handleDeleteConversation(contextMenuConversation)}
           >
             <Trash2 className="size-4" />

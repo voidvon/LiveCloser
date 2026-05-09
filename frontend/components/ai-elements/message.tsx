@@ -298,7 +298,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
           {onRemove && (
             <Button
               aria-label="Remove attachment"
-              className="bg-background/80 hover:bg-background absolute top-2 right-2 size-6 rounded-full p-0 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 [&>svg]:size-3"
+              className="border-border/70 bg-background/78 hover:border-primary/20 hover:bg-accent/80 absolute top-2 right-2 size-6 rounded-full border p-0 opacity-0 backdrop-blur-xl transition-opacity group-hover:opacity-100 [&>svg]:size-3"
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove();
@@ -326,7 +326,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
           {onRemove && (
             <Button
               aria-label="Remove attachment"
-              className="hover:bg-accent size-6 shrink-0 rounded-full p-0 opacity-0 transition-opacity group-hover:opacity-100 [&>svg]:size-3"
+              className="border-border/70 bg-background/64 hover:border-primary/20 hover:bg-accent/80 size-6 shrink-0 rounded-full border p-0 opacity-0 transition-[opacity,background-color,border-color] group-hover:opacity-100 [&>svg]:size-3"
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove();

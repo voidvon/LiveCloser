@@ -302,7 +302,7 @@ export function AgentControlBar({
       aria-label="语音助手控制栏"
       aria-disabled={disabled}
       className={cn(
-        'bg-background border-input/50 dark:border-muted flex flex-col border p-3 drop-shadow-md/3',
+        'border-border/70 bg-background/76 flex flex-col border p-3 shadow-[0_18px_40px_rgba(15,23,42,0.20)] backdrop-blur-xl',
         variant === 'livekit' ? 'rounded-[31px]' : 'rounded-lg',
         disabled && 'pointer-events-none opacity-60',
         className
@@ -313,7 +313,7 @@ export function AgentControlBar({
         {...MOTION_PROPS}
         inert={!(isChatOpen || isChatOpenUncontrolled)}
         animate={isChatOpen || isChatOpenUncontrolled ? 'visible' : 'hidden'}
-        className="border-input/50 flex w-full items-start overflow-hidden border-b"
+        className="border-border/60 flex w-full items-start overflow-hidden border-b"
       >
         <AgentChatInput
           chatOpen={isChatOpen || isChatOpenUncontrolled}
