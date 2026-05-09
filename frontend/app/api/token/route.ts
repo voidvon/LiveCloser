@@ -105,6 +105,7 @@ export async function POST(req: Request) {
       : new RoomConfiguration();
     const participantMetadata =
       typeof body?.participant_metadata === 'string' ? body.participant_metadata : '';
+    const shouldDispatchAgent = body?.dispatch_agent === true;
 
     // Generate participant token
     const participantName = 'user';
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
 
     const resolvedDispatchAgentName = DISPATCH_AGENT_NAME || AGENT_NAME;
 
-    if (resolvedDispatchAgentName) {
+    if (resolvedDispatchAgentName && shouldDispatchAgent) {
       const dispatchClient = new AgentDispatchClient(toServiceUrl(LIVEKIT_URL), API_KEY, API_SECRET);
       await dispatchClient.createDispatch(roomName, resolvedDispatchAgentName, {
         metadata: participantMetadata,

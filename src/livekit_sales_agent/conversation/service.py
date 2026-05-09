@@ -7,9 +7,10 @@ from livekit.agents import ChatContext
 
 from livekit_sales_agent.knowledge.db import connect
 
+from .constants import UNSET
 from .repositories import ConversationRepository
 
-_UNSET = object()
+_UNSET = UNSET
 
 
 class ConversationService:
@@ -57,6 +58,11 @@ class ConversationService:
                 knowledge_base_id=knowledge_base_id,
                 last_mode=last_mode,
             )
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = ConversationRepository(conn)
+            return repo.delete_conversation(conversation_id)
 
     def ensure_conversation(
         self,

@@ -49,3 +49,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ path:
   const { path } = await context.params;
   return forward(request, path);
 }
+
+export async function DELETE(request: Request, context: { params: Promise<{ path: string[] }> }) {
+  const { path } = await context.params;
+  return forward(request, path);
+}

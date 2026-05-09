@@ -31,6 +31,7 @@ type PendingSessionConfig = {
   sessionMode: 'text' | 'voice';
   knowledgeBaseId: string | null;
   conversationId: string | null;
+  dispatchAgent: boolean;
 };
 
 export function App({ appConfig }: AppProps) {
@@ -42,18 +43,27 @@ export function App({ appConfig }: AppProps) {
     sessionMode: 'text',
     knowledgeBaseId: null,
     conversationId: null,
+    dispatchAgent: false,
   });
   const tokenSource = useMemo(() => {
     return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
       ? getSandboxTokenSource(appConfig)
       : TokenSource.literal(async () => {
           const pending = pendingSessionConfigRef.current;
-          return requestAppConnectionDetails(
+          const connectionDetails = await requestAppConnectionDetails(
             appConfig,
             pending.sessionMode,
             pending.knowledgeBaseId,
-            pending.conversationId
+            pending.conversationId,
+            pending.dispatchAgent
           );
+          if (pending.dispatchAgent) {
+            pendingSessionConfigRef.current = {
+              ...pending,
+              dispatchAgent: false,
+            };
+          }
+          return connectionDetails;
         });
   }, [appConfig]);
 
@@ -81,6 +91,7 @@ export function App({ appConfig }: AppProps) {
               sessionMode: nextMode,
               knowledgeBaseId: nextKnowledgeBaseId,
               conversationId: nextConversationId,
+              dispatchAgent: true,
             };
           }}
         />

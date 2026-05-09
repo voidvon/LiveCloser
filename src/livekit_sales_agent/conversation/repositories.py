@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
+from .constants import UNSET
 from .models import ConversationMessageRecord, ConversationRecord
 
-_UNSET = object()
+_UNSET = UNSET
 
 
 def utc_now() -> str:
@@ -99,6 +100,14 @@ class ConversationRepository:
         )
         self._conn.commit()
         return self.get_conversation(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        result = self._conn.execute(
+            "DELETE FROM chat_conversations WHERE id = ?",
+            (conversation_id,),
+        )
+        self._conn.commit()
+        return result.rowcount > 0
 
     def touch_conversation(
         self,

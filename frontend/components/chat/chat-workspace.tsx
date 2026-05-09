@@ -1,7 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquarePlus, Phone, RefreshCcw, TextCursorInput } from 'lucide-react';
+import {
+  Check,
+  MessageSquarePlus,
+  Pencil,
+  RefreshCcw,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   AgentSessionView_01,
   type AgentSessionView_01Props,
@@ -67,6 +74,33 @@ async function postJson<T>(url: string, payload: object): Promise<T> {
   return response.json();
 }
 
+async function patchJson<T>(url: string, payload: object): Promise<T> {
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json();
+}
+
+async function deleteJson(url: string): Promise<void> {
+  const response = await fetch(url, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+type ContextMenuState = {
+  conversationId: string;
+  x: number;
+  y: number;
+} | null;
+
 export function ChatWorkspace({
   knowledgeBases,
   activeKnowledgeBaseId,
@@ -85,11 +119,23 @@ export function ChatWorkspace({
   className,
 }: ChatWorkspaceProps) {
   const [conversations, setConversations] = useState<ConversationRecord[]>([]);
+  const [displayedConversationId, setDisplayedConversationId] = useState<string | null>(null);
+  const [displayedConversationTitle, setDisplayedConversationTitle] = useState<string | null>(null);
+  const [displayedMessages, setDisplayedMessages] = useState<ConversationMessageRecord[]>([]);
+  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessageRecord[]>>(
+    {}
+  );
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const [savingConversationId, setSavingConversationId] = useState<string | null>(null);
+  const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [error, setError] = useState<string | null>(null);
   const previousSessionActiveRef = useRef(sessionActive);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const loadRequestIdRef = useRef(0);
 
   useEffect(() => {
     void loadConversations();
@@ -97,10 +143,12 @@ export function ChatWorkspace({
 
   useEffect(() => {
     if (!activeConversationId) {
+      setDisplayedConversationId(null);
+      setDisplayedConversationTitle(null);
+      setDisplayedMessages([]);
       onPersistedMessagesChange([]);
       return;
     }
-    void loadMessages(activeConversationId);
   }, [activeConversationId]);
 
   const activeConversation = useMemo(
@@ -115,10 +163,40 @@ export function ChatWorkspace({
     if (previousSessionActive && !sessionActive) {
       void loadConversations();
       if (activeConversationId) {
-        void loadMessages(activeConversationId);
+        void loadMessages(activeConversationId, {
+          force: true,
+          showLoading: false,
+          updateDisplayed: true,
+        });
       }
     }
   }, [activeConversationId, sessionActive]);
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (contextMenuRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      setContextMenu(null);
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    }
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenu]);
 
   async function loadConversations() {
     try {
@@ -129,6 +207,10 @@ export function ChatWorkspace({
       if (activeConversationId && !data.some((item) => item.id === activeConversationId)) {
         onActiveConversationIdChange(null);
       }
+      if (renamingConversationId && !data.some((item) => item.id === renamingConversationId)) {
+        setRenamingConversationId(null);
+        setRenameDraft('');
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载会话列表失败');
     } finally {
@@ -136,18 +218,59 @@ export function ChatWorkspace({
     }
   }
 
-  async function loadMessages(conversationId: string) {
+  async function fetchMessages(conversationId: string) {
+    return getJson<ConversationMessageRecord[]>(`/api/chat/conversations/${conversationId}/messages`);
+  }
+
+  async function loadMessages(
+    conversationId: string,
+    options: {
+      force?: boolean;
+      showLoading?: boolean;
+      updateDisplayed?: boolean;
+    } = {}
+  ) {
+    const { force = false, showLoading = true, updateDisplayed = true } = options;
+    const cachedMessages = messageCache[conversationId];
+    if (!force && cachedMessages) {
+      if (updateDisplayed) {
+        setDisplayedMessages(cachedMessages);
+        onPersistedMessagesChange(cachedMessages);
+      }
+      return cachedMessages;
+    }
+
+    const requestId = ++loadRequestIdRef.current;
     try {
-      setLoadingMessages(true);
+      if (showLoading) {
+        setLoadingMessages(true);
+      }
       setError(null);
-      const data = await getJson<ConversationMessageRecord[]>(
-        `/api/chat/conversations/${conversationId}/messages`
-      );
-      onPersistedMessagesChange(data);
+      const data = await fetchMessages(conversationId);
+      if (requestId !== loadRequestIdRef.current) {
+        return data;
+      }
+      setMessageCache((current) => ({
+        ...current,
+        [conversationId]: data,
+      }));
+      if (updateDisplayed) {
+        const conversation = conversations.find((item) => item.id === conversationId) ?? null;
+        setDisplayedConversationId(conversationId);
+        setDisplayedConversationTitle(conversation?.title ?? null);
+        setDisplayedMessages(data);
+        onPersistedMessagesChange(data);
+      }
+      return data;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '加载会话消息失败');
+      if (requestId === loadRequestIdRef.current) {
+        setError(err instanceof Error ? err.message : '加载会话消息失败');
+      }
+      throw err;
     } finally {
-      setLoadingMessages(false);
+      if (showLoading && requestId === loadRequestIdRef.current) {
+        setLoadingMessages(false);
+      }
     }
   }
 
@@ -155,12 +278,20 @@ export function ChatWorkspace({
     try {
       setCreatingConversation(true);
       setError(null);
+      setContextMenu(null);
       const conversation = await postJson<ConversationRecord>('/api/chat/conversations', {
         title: '新会话',
         knowledge_base_id: activeKnowledgeBaseId,
         last_mode: 'text',
       });
       setConversations((current) => [conversation, ...current]);
+      setMessageCache((current) => ({
+        ...current,
+        [conversation.id]: [],
+      }));
+      setDisplayedConversationId(conversation.id);
+      setDisplayedConversationTitle(conversation.title);
+      setDisplayedMessages([]);
       onActiveConversationIdChange(conversation.id);
       onPersistedMessagesChange([]);
     } catch (err: unknown) {
@@ -169,6 +300,124 @@ export function ChatWorkspace({
       setCreatingConversation(false);
     }
   }
+
+  function handleSelectConversation(conversationId: string) {
+    if (sessionActive || activeConversationId === conversationId) {
+      return;
+    }
+    onActiveConversationIdChange(conversationId);
+    const cachedMessages = messageCache[conversationId];
+    if (cachedMessages) {
+      const conversation = conversations.find((item) => item.id === conversationId) ?? null;
+      setError(null);
+      setLoadingMessages(false);
+      setDisplayedConversationId(conversationId);
+      setDisplayedConversationTitle(conversation?.title ?? null);
+      setDisplayedMessages(cachedMessages);
+      onPersistedMessagesChange(cachedMessages);
+      return;
+    }
+    void loadMessages(conversationId, {
+      force: true,
+      showLoading: true,
+      updateDisplayed: true,
+    });
+  }
+
+  function handleConversationContextMenu(
+    event: React.MouseEvent<HTMLButtonElement>,
+    conversation: ConversationRecord
+  ) {
+    if (sessionActive) {
+      return;
+    }
+    event.preventDefault();
+    const menuWidth = 184;
+    const menuHeight = 112;
+    setContextMenu({
+      conversationId: conversation.id,
+      x: Math.min(event.clientX, window.innerWidth - menuWidth),
+      y: Math.min(event.clientY, window.innerHeight - menuHeight),
+    });
+  }
+
+  function startRenameConversation(conversation: ConversationRecord) {
+    setContextMenu(null);
+    setRenamingConversationId(conversation.id);
+    setRenameDraft(conversation.title);
+  }
+
+  function cancelRenameConversation() {
+    setRenamingConversationId(null);
+    setRenameDraft('');
+  }
+
+  async function submitRenameConversation(conversationId: string) {
+    const title = renameDraft.trim();
+    if (!title) {
+      setError('会话名称不能为空');
+      return;
+    }
+
+    try {
+      setSavingConversationId(conversationId);
+      setError(null);
+      const updated = await patchJson<ConversationRecord>(`/api/chat/conversations/${conversationId}`, {
+        title,
+      });
+      setConversations((current) =>
+        current.map((item) => (item.id === conversationId ? updated : item))
+      );
+      setRenamingConversationId(null);
+      setRenameDraft('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '重命名会话失败');
+    } finally {
+      setSavingConversationId(null);
+    }
+  }
+
+  async function handleDeleteConversation(conversation: ConversationRecord) {
+    setContextMenu(null);
+    const confirmed = window.confirm(`确认删除会话“${conversation.title}”吗？删除后不可恢复。`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setSavingConversationId(conversation.id);
+      setError(null);
+      await deleteJson(`/api/chat/conversations/${conversation.id}`);
+      setConversations((current) => current.filter((item) => item.id !== conversation.id));
+      setMessageCache((current) => {
+        const next = { ...current };
+        delete next[conversation.id];
+        return next;
+      });
+      if (activeConversationId === conversation.id) {
+        onActiveConversationIdChange(null);
+        setDisplayedConversationId(null);
+        setDisplayedConversationTitle(null);
+        setDisplayedMessages([]);
+        onPersistedMessagesChange([]);
+      }
+      if (renamingConversationId === conversation.id) {
+        cancelRenameConversation();
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '删除会话失败');
+    } finally {
+      setSavingConversationId(null);
+    }
+  }
+
+  const contextMenuConversation = useMemo(
+    () =>
+      contextMenu
+        ? conversations.find((item) => item.id === contextMenu.conversationId) ?? null
+        : null,
+    [contextMenu, conversations]
+  );
 
   return (
     <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
@@ -228,43 +477,106 @@ export function ChatWorkspace({
               </div>
             ) : (
               conversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  onClick={() => onActiveConversationIdChange(conversation.id)}
-                  disabled={sessionActive}
-                  className={cn(
-                    'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
-                    activeConversationId === conversation.id
-                      ? 'border-foreground/15 bg-foreground text-background'
-                      : 'border-border/70 bg-accent/20 hover:bg-accent',
-                    sessionActive && 'cursor-not-allowed opacity-60'
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="truncate font-medium">{conversation.title}</p>
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] uppercase',
-                        activeConversationId === conversation.id
-                          ? 'bg-background/12 text-background/80'
-                          : 'bg-background text-muted-foreground'
-                      )}
-                    >
-                      {conversation.last_mode === 'voice' ? '语音' : '消息'}
-                    </span>
-                  </div>
-                  <p
+                renamingConversationId === conversation.id ? (
+                  <div
+                    key={conversation.id}
                     className={cn(
-                      'mt-2 line-clamp-2 text-xs leading-5',
+                      'w-full rounded-2xl border px-4 py-3 text-left',
                       activeConversationId === conversation.id
-                        ? 'text-background/72'
-                        : 'text-muted-foreground'
+                        ? 'border-foreground/15 bg-foreground text-background'
+                        : 'border-border/70 bg-accent/20'
                     )}
                   >
-                    {conversation.last_message_preview || '还没有消息'}
-                  </p>
-                </button>
+                    <div className="space-y-3">
+                      <input
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(event) => setRenameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void submitRenameConversation(conversation.id);
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            cancelRenameConversation();
+                          }
+                        }}
+                        className={cn(
+                          'bg-background w-full rounded-xl border px-3 py-2 text-sm outline-none',
+                          activeConversationId === conversation.id
+                            ? 'border-background/30 text-foreground'
+                            : 'border-border/70'
+                        )}
+                        placeholder="输入会话名称"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            cancelRenameConversation();
+                          }}
+                          disabled={savingConversationId === conversation.id}
+                        >
+                          <X className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void submitRenameConversation(conversation.id);
+                          }}
+                          disabled={savingConversationId === conversation.id}
+                        >
+                          <Check className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    onClick={() => handleSelectConversation(conversation.id)}
+                    onContextMenu={(event) => handleConversationContextMenu(event, conversation)}
+                    disabled={sessionActive}
+                    className={cn(
+                      'w-full rounded-2xl border px-4 py-3 text-left transition-colors',
+                      activeConversationId === conversation.id
+                        ? 'border-foreground/15 bg-foreground text-background'
+                        : 'border-border/70 bg-accent/20 hover:bg-accent',
+                      sessionActive && 'cursor-not-allowed opacity-60'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate font-medium">{conversation.title}</p>
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] uppercase',
+                          activeConversationId === conversation.id
+                            ? 'bg-background/12 text-background/80'
+                            : 'bg-background text-muted-foreground'
+                        )}
+                      >
+                        {conversation.last_mode === 'voice' ? '语音' : '消息'}
+                      </span>
+                    </div>
+                    <p
+                      className={cn(
+                        'mt-2 line-clamp-2 text-xs leading-5',
+                        activeConversationId === conversation.id
+                          ? 'text-background/72'
+                          : 'text-muted-foreground'
+                      )}
+                    >
+                      {conversation.last_message_preview || '还没有消息'}
+                    </p>
+                  </button>
+                )
               ))
             )}
           </div>
@@ -276,18 +588,46 @@ export function ChatWorkspace({
           {...sessionViewConfig}
           initialChatOpen={sessionMode === 'text'}
           sessionMode={sessionMode}
-          persistedMessages={persistedMessages}
-          activeConversationId={activeConversationId}
-          activeConversationTitle={activeConversation?.title ?? null}
+          persistedMessages={displayedMessages}
+          activeConversationId={displayedConversationId}
+          activeConversationTitle={displayedConversationTitle}
           loadingMessages={loadingMessages}
           viewError={error}
-          onStartTextChat={() => onStartTextChat(activeConversationId)}
-          onStartVoiceChat={() => onStartVoiceChat(activeConversationId)}
-          startDisabled={startDisabled || !activeConversationId}
+          onStartTextChat={() => onStartTextChat(displayedConversationId)}
+          onStartVoiceChat={() => onStartVoiceChat(displayedConversationId)}
+          startDisabled={startDisabled || !displayedConversationId || loadingMessages}
           startDisabledReason={startDisabledReason}
           className="h-full w-full flex-1 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
         />
       </div>
+
+      {contextMenu && contextMenuConversation ? (
+        <div
+          ref={contextMenuRef}
+          className="bg-background fixed z-50 min-w-[168px] rounded-2xl border border-border/80 p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+        >
+          <button
+            type="button"
+            className="hover:bg-accent flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() => startRenameConversation(contextMenuConversation)}
+          >
+            <Pencil className="size-4" />
+            <span>重命名会话</span>
+          </button>
+          <button
+            type="button"
+            className="hover:bg-destructive/8 text-destructive flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() => void handleDeleteConversation(contextMenuConversation)}
+          >
+            <Trash2 className="size-4" />
+            <span>删除会话</span>
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -283,6 +283,15 @@ export function AgentSessionView_01({
               ? '开始前先查看历史消息。启动后会在同一界面继续对话。'
               : '当前为纯文字会话模式，不会启用录音，也不会播放语音。'}
           </p>
+          {loadingMessages ? (
+            <div className="mt-3 overflow-hidden rounded-full bg-border/60">
+              <motion.div
+                className="h-1 w-1/3 rounded-full bg-foreground/80"
+                animate={{ x: ['-20%', '260%'] }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            </div>
+          ) : null}
         </div>
 
         {viewError ? (
@@ -324,13 +333,24 @@ export function AgentSessionView_01({
               <div className="text-muted-foreground flex h-full min-h-[240px] items-center justify-center px-6 text-sm">
                 当前会话还没有历史消息，点击下方按钮开始。
               </div>
+            ) : isPreSession ? (
+              <div className="h-full min-h-0">
+                <AgentChatTranscript
+                  agentState={undefined}
+                  messages={[]}
+                  persistedMessages={transcriptHistory}
+                  className="h-full min-h-0 [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6"
+                />
+              </div>
             ) : (
-              <AgentChatTranscript
-                agentState={isPreSession ? undefined : agentState}
-                messages={isPreSession ? [] : messages}
-                persistedMessages={transcriptHistory}
-                className={transcriptPanelClassName}
-              />
+              <div className="h-full min-h-0">
+                <AgentChatTranscript
+                  agentState={agentState}
+                  messages={isPreSession ? [] : messages}
+                  persistedMessages={transcriptHistory}
+                  className={transcriptPanelClassName}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -395,6 +415,15 @@ export function AgentSessionView_01({
               ? '开始前先查看历史消息。启动后会在同一界面继续对话。'
               : '语音通话只保存最终文案，历史会和当前实时记录合并显示。'}
           </p>
+          {loadingMessages ? (
+            <div className="mt-3 overflow-hidden rounded-full bg-border/60">
+              <motion.div
+                className="h-1 w-1/3 rounded-full bg-foreground/80"
+                animate={{ x: ['-20%', '260%'] }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -437,13 +466,24 @@ export function AgentSessionView_01({
                 <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-40 text-sm md:px-0">
                   当前会话还没有历史消息，点击下方按钮开始。
                 </div>
+              ) : isPreSession ? (
+                <div className="mx-auto h-full w-full max-w-2xl min-h-0">
+                  <AgentChatTranscript
+                    agentState={undefined}
+                    messages={[]}
+                    persistedMessages={transcriptHistory}
+                    className="mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px]"
+                  />
+                </div>
               ) : (
-                <AgentChatTranscript
-                  agentState={isPreSession ? undefined : agentState}
-                  messages={isPreSession ? [] : messages}
-                  persistedMessages={transcriptHistory}
-                  className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
-                />
+                <div className="mx-auto h-full w-full max-w-2xl min-h-0">
+                  <AgentChatTranscript
+                    agentState={agentState}
+                    messages={messages}
+                    persistedMessages={transcriptHistory}
+                    className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
+                  />
+                </div>
               )}
             </motion.div>
           )}

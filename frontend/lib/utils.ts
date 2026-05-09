@@ -177,10 +177,17 @@ export function getAppTokenSource(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
   knowledgeBaseId?: string | null,
-  conversationId?: string | null
+  conversationId?: string | null,
+  dispatchAgent?: boolean
 ) {
   return TokenSource.custom(async () =>
-    requestAppConnectionDetails(appConfig, sessionMode, knowledgeBaseId, conversationId)
+    requestAppConnectionDetails(
+      appConfig,
+      sessionMode,
+      knowledgeBaseId,
+      conversationId,
+      dispatchAgent
+    )
   );
 }
 
@@ -188,7 +195,8 @@ export async function requestAppConnectionDetails(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
   knowledgeBaseId?: string | null,
-  conversationId?: string | null
+  conversationId?: string | null,
+  dispatchAgent = false
 ) {
   void appConfig;
 
@@ -205,6 +213,7 @@ export async function requestAppConnectionDetails(
     },
     body: JSON.stringify({
       participant_metadata: participantMetadata,
+      dispatch_agent: dispatchAgent,
     }),
   });
 

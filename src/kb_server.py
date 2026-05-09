@@ -191,6 +191,14 @@ def update_conversation(conversation_id: str, payload: ConversationUpdatePayload
     return record
 
 
+@app.delete("/chat/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str):
+    deleted = conversation_service.delete_conversation(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"ok": True}
+
+
 @app.get("/chat/conversations/{conversation_id}/messages")
 def list_conversation_messages(conversation_id: str):
     record = conversation_service.get_conversation(conversation_id)
