@@ -300,7 +300,9 @@ export function AgentSessionView_01({
             <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
               消息会话
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">消息对话</h2>
+            <h2 className="mt-2 truncate text-2xl font-semibold tracking-tight">
+              {activeConversationTitle ?? '请选择或新建会话'}
+            </h2>
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden">

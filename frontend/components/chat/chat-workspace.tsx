@@ -563,19 +563,7 @@ export function ChatWorkspace({
                       sessionActive && 'cursor-not-allowed opacity-60'
                     )}
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="truncate font-medium">{conversation.title}</p>
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.16em] uppercase',
-                          activeConversationId === conversation.id
-                            ? 'bg-primary/12 text-primary'
-                            : 'bg-background text-muted-foreground'
-                        )}
-                      >
-                        {conversation.last_mode === 'voice' ? '语音' : '消息'}
-                      </span>
-                    </div>
+                    <p className="truncate font-medium">{conversation.title}</p>
                     <p
                       className={cn(
                         'mt-2 line-clamp-2 text-xs leading-5',
