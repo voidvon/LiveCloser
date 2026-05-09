@@ -8,6 +8,7 @@ import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { ViewController } from '@/components/app/view-controller';
+import type { ConversationMessageRecord } from '@/components/chat/types';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';
@@ -29,14 +30,18 @@ interface AppProps {
 type PendingSessionConfig = {
   sessionMode: 'text' | 'voice';
   knowledgeBaseId: string | null;
+  conversationId: string | null;
 };
 
 export function App({ appConfig }: AppProps) {
-  const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('voice');
+  const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('text');
   const [activeKnowledgeBaseId, setActiveKnowledgeBaseId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [persistedMessages, setPersistedMessages] = useState<ConversationMessageRecord[]>([]);
   const pendingSessionConfigRef = useRef<PendingSessionConfig>({
-    sessionMode: 'voice',
+    sessionMode: 'text',
     knowledgeBaseId: null,
+    conversationId: null,
   });
   const tokenSource = useMemo(() => {
     return typeof process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
@@ -46,7 +51,8 @@ export function App({ appConfig }: AppProps) {
           return requestAppConnectionDetails(
             appConfig,
             pending.sessionMode,
-            pending.knowledgeBaseId
+            pending.knowledgeBaseId,
+            pending.conversationId
           );
         });
   }, [appConfig]);
@@ -66,10 +72,15 @@ export function App({ appConfig }: AppProps) {
           onSessionModeChange={setSessionMode}
           activeKnowledgeBaseId={activeKnowledgeBaseId}
           onActiveKnowledgeBaseIdChange={setActiveKnowledgeBaseId}
-          onPrepareSessionStart={(nextMode, nextKnowledgeBaseId) => {
+          activeConversationId={activeConversationId}
+          onActiveConversationIdChange={setActiveConversationId}
+          persistedMessages={persistedMessages}
+          onPersistedMessagesChange={setPersistedMessages}
+          onPrepareSessionStart={(nextMode, nextKnowledgeBaseId, nextConversationId) => {
             pendingSessionConfigRef.current = {
               sessionMode: nextMode,
               knowledgeBaseId: nextKnowledgeBaseId,
+              conversationId: nextConversationId,
             };
           }}
         />

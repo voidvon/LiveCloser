@@ -176,23 +176,26 @@ export function getSandboxTokenSource(appConfig: AppConfig) {
 export function getAppTokenSource(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
-  knowledgeBaseId?: string | null
+  knowledgeBaseId?: string | null,
+  conversationId?: string | null
 ) {
   return TokenSource.custom(async () =>
-    requestAppConnectionDetails(appConfig, sessionMode, knowledgeBaseId)
+    requestAppConnectionDetails(appConfig, sessionMode, knowledgeBaseId, conversationId)
   );
 }
 
 export async function requestAppConnectionDetails(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
-  knowledgeBaseId?: string | null
+  knowledgeBaseId?: string | null,
+  conversationId?: string | null
 ) {
   void appConfig;
 
   const participantMetadata = JSON.stringify({
     session_mode: sessionMode,
     knowledge_base_id: knowledgeBaseId ?? null,
+    conversation_id: conversationId ?? null,
   });
 
   const res = await fetch('/api/token', {

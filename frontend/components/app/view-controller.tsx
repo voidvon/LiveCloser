@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
-import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
-import { WelcomeView } from '@/components/app/welcome-view';
+import { ChatWorkspace } from '@/components/chat/chat-workspace';
+import type { ConversationMessageRecord } from '@/components/chat/types';
 
 interface ViewControllerProps {
   appConfig: AppConfig;
@@ -13,7 +13,15 @@ interface ViewControllerProps {
   onSessionModeChange: (mode: 'text' | 'voice') => void;
   activeKnowledgeBaseId: string | null;
   onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
-  onPrepareSessionStart: (mode: 'text' | 'voice', kbId: string | null) => void;
+  activeConversationId: string | null;
+  onActiveConversationIdChange: (conversationId: string | null) => void;
+  persistedMessages: ConversationMessageRecord[];
+  onPersistedMessagesChange: (messages: ConversationMessageRecord[]) => void;
+  onPrepareSessionStart: (
+    mode: 'text' | 'voice',
+    kbId: string | null,
+    conversationId: string | null
+  ) => void;
 }
 
 export function ViewController({
@@ -22,6 +30,10 @@ export function ViewController({
   onSessionModeChange,
   activeKnowledgeBaseId,
   onActiveKnowledgeBaseIdChange,
+  activeConversationId,
+  onActiveConversationIdChange,
+  persistedMessages,
+  onPersistedMessagesChange,
   onPrepareSessionStart,
 }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
@@ -47,12 +59,12 @@ export function ViewController({
       });
   }, [activeKnowledgeBaseId, onActiveKnowledgeBaseIdChange]);
 
-  const handleStartTextChat = () => {
+  const handleStartTextChat = (conversationId: string | null) => {
     if (!appConfig.sessionStartEnabled) {
       return;
     }
 
-    onPrepareSessionStart('text', activeKnowledgeBaseId);
+    onPrepareSessionStart('text', activeKnowledgeBaseId, conversationId);
     onSessionModeChange('text');
     void start({
       tracks: {
@@ -63,12 +75,12 @@ export function ViewController({
     });
   };
 
-  const handleStartVoiceChat = () => {
+  const handleStartVoiceChat = (conversationId: string | null) => {
     if (!appConfig.sessionStartEnabled) {
       return;
     }
 
-    onPrepareSessionStart('voice', activeKnowledgeBaseId);
+    onPrepareSessionStart('voice', activeKnowledgeBaseId, conversationId);
     onSessionModeChange('voice');
     void start();
   };
@@ -76,41 +88,40 @@ export function ViewController({
   return (
     <section className="flex h-svh max-h-svh flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6">
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {!isConnected ? (
-          <WelcomeView
-            onStartTextChat={handleStartTextChat}
-            onStartVoiceChat={handleStartVoiceChat}
-            knowledgeBases={knowledgeBases}
-            activeKnowledgeBaseId={activeKnowledgeBaseId}
-            onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
-            startDisabled={!appConfig.sessionStartEnabled}
-            startDisabledReason={appConfig.sessionStartDisabledReason}
-            className="flex h-full w-full flex-1 overflow-hidden"
-          />
-        ) : (
-          <AgentSessionView_01
-            supportsChatInput={appConfig.supportsChatInput}
-            supportsVideoInput={appConfig.supportsVideoInput}
-            supportsScreenShare={appConfig.supportsScreenShare}
-            isPreConnectBufferEnabled={appConfig.isPreConnectBufferEnabled}
-            audioVisualizerType={appConfig.audioVisualizerType}
-            audioVisualizerColor={
+        <ChatWorkspace
+          onStartTextChat={handleStartTextChat}
+          onStartVoiceChat={handleStartVoiceChat}
+          knowledgeBases={knowledgeBases}
+          activeKnowledgeBaseId={activeKnowledgeBaseId}
+          onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
+          activeConversationId={activeConversationId}
+          onActiveConversationIdChange={onActiveConversationIdChange}
+          persistedMessages={persistedMessages}
+          onPersistedMessagesChange={onPersistedMessagesChange}
+          startDisabled={!appConfig.sessionStartEnabled}
+          startDisabledReason={appConfig.sessionStartDisabledReason}
+          sessionMode={sessionMode}
+          sessionActive={isConnected}
+          sessionViewConfig={{
+            supportsChatInput: appConfig.supportsChatInput,
+            supportsVideoInput: appConfig.supportsVideoInput,
+            supportsScreenShare: appConfig.supportsScreenShare,
+            isPreConnectBufferEnabled: appConfig.isPreConnectBufferEnabled,
+            audioVisualizerType: appConfig.audioVisualizerType,
+            audioVisualizerColor:
               resolvedTheme === 'dark'
                 ? appConfig.audioVisualizerColorDark
-                : appConfig.audioVisualizerColor
-            }
-            audioVisualizerColorShift={appConfig.audioVisualizerColorShift}
-            audioVisualizerBarCount={appConfig.audioVisualizerBarCount}
-            audioVisualizerGridRowCount={appConfig.audioVisualizerGridRowCount}
-            audioVisualizerGridColumnCount={appConfig.audioVisualizerGridColumnCount}
-            audioVisualizerRadialBarCount={appConfig.audioVisualizerRadialBarCount}
-            audioVisualizerRadialRadius={appConfig.audioVisualizerRadialRadius}
-            audioVisualizerWaveLineWidth={appConfig.audioVisualizerWaveLineWidth}
-            initialChatOpen={sessionMode === 'text'}
-            sessionMode={sessionMode}
-            className="h-full w-full flex-1 rounded-[28px] border border-border/70 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
-          />
-        )}
+                : appConfig.audioVisualizerColor,
+            audioVisualizerColorShift: appConfig.audioVisualizerColorShift,
+            audioVisualizerBarCount: appConfig.audioVisualizerBarCount,
+            audioVisualizerGridRowCount: appConfig.audioVisualizerGridRowCount,
+            audioVisualizerGridColumnCount: appConfig.audioVisualizerGridColumnCount,
+            audioVisualizerRadialBarCount: appConfig.audioVisualizerRadialBarCount,
+            audioVisualizerRadialRadius: appConfig.audioVisualizerRadialRadius,
+            audioVisualizerWaveLineWidth: appConfig.audioVisualizerWaveLineWidth,
+          }}
+          className="flex h-full w-full flex-1 overflow-hidden"
+        />
       </div>
     </section>
   );

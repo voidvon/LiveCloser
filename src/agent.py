@@ -21,6 +21,7 @@ from livekit.agents import (
 )
 from livekit.plugins import openai, silero
 
+from livekit_sales_agent.conversation import ConversationService
 from livekit_sales_agent.config import Settings
 from livekit_sales_agent.knowledge import RetrievalService
 from livekit_sales_agent.prompts import build_instructions
@@ -34,6 +35,7 @@ retrieval_service = RetrievalService(
     db_path=settings.kb_data_dir / "app.db",
     chroma_root=settings.kb_data_dir / "chroma",
 )
+conversation_service = ConversationService(db_path=settings.kb_data_dir / "app.db")
 server = AgentServer()
 logger = logging.getLogger("livekit_sales_agent.agent")
 
@@ -42,6 +44,7 @@ logger = logging.getLogger("livekit_sales_agent.agent")
 class SessionMetadata:
     session_mode: str = "voice"
     knowledge_base_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
     @property
     def is_text_mode(self) -> bool:
@@ -188,6 +191,17 @@ class SalesAgent(Agent):
             parts.append("\n".join(lines))
         return "\n\n".join(parts)
 
+    async def restore_history(self) -> None:
+        conversation_id = self._metadata.conversation_id
+        if not conversation_id:
+            return
+
+        history = conversation_service.build_chat_context(conversation_id)
+        if not history.items:
+            return
+
+        await self.update_chat_ctx(history)
+
 
 def build_session(proc: JobProcess, metadata: SessionMetadata) -> AgentSession:
     settings.validate()
@@ -247,6 +261,7 @@ def parse_session_metadata(ctx: JobContext) -> SessionMetadata:
     return SessionMetadata(
         session_mode=str(payload.get("session_mode") or "voice"),
         knowledge_base_id=_optional_str(payload.get("knowledge_base_id")),
+        conversation_id=_optional_str(payload.get("conversation_id")),
     )
 
 
@@ -287,18 +302,47 @@ def _optional_str(value: object) -> Optional[str]:
 async def entrypoint(ctx: JobContext) -> None:
     raw_metadata = _extract_agent_metadata(ctx)
     metadata = parse_session_metadata(ctx)
+    ensured_conversation = conversation_service.ensure_conversation(
+        metadata.conversation_id,
+        knowledge_base_id=metadata.knowledge_base_id,
+        last_mode=metadata.session_mode,
+    )
+    metadata.conversation_id = ensured_conversation.id
     job_metadata = getattr(getattr(ctx, "job", None), "metadata", None)
     logger.info(
         "starting agent session",
         extra={
             "session_mode": metadata.session_mode,
             "knowledge_base_id": metadata.knowledge_base_id,
+            "conversation_id": metadata.conversation_id,
             "raw_metadata": raw_metadata,
             "job_metadata": job_metadata,
         },
     )
     session = build_session(ctx.proc, metadata)
     agent = SalesAgent(settings, metadata)
+    await agent.restore_history()
+
+    @session.on("conversation_item_added")
+    def _handle_conversation_item_added(event) -> None:
+        item = getattr(event, "item", None)
+        if not isinstance(item, ChatMessage):
+            return
+        if item.role not in {"user", "assistant"}:
+            return
+        content = (item.text_content or "").strip()
+        if not content:
+            return
+        if not metadata.conversation_id:
+            return
+        conversation_service.append_message(
+            conversation_id=metadata.conversation_id,
+            role=item.role,
+            content=content,
+            source_mode=metadata.session_mode,
+            external_message_id=item.id,
+        )
+
     room_options = room_io.RoomOptions(
         text_input=room_io.TextInputOptions(
             text_input_cb=lambda sess, ev: handle_text_input(sess, ev, agent)

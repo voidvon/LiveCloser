@@ -11,6 +11,13 @@ import {
 } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 
+export type TranscriptMessage = {
+  id: string;
+  timestamp: number;
+  from: 'user' | 'assistant';
+  message: string;
+};
+
 /**
  * Props for the AgentChatTranscript component.
  */
@@ -24,6 +31,7 @@ export interface AgentChatTranscriptProps extends ComponentProps<'div'> {
    * @defaultValue []
    */
   messages?: ReceivedMessage[];
+  persistedMessages?: TranscriptMessage[];
   /**
    * Additional CSS class names to apply to the conversation container.
    */
@@ -48,16 +56,34 @@ export interface AgentChatTranscriptProps extends ComponentProps<'div'> {
 export function AgentChatTranscript({
   agentState,
   messages = [],
+  persistedMessages = [],
   className,
   ...props
 }: AgentChatTranscriptProps) {
+  const livekitMessages: TranscriptMessage[] = messages.map((receivedMessage) => {
+    const { id, timestamp, from, message, type } = receivedMessage;
+    const messageOrigin =
+      type === 'userTranscript' ? 'user' : type === 'agentTranscript' ? 'assistant' : from?.isLocal ? 'user' : 'assistant';
+
+    return {
+      id,
+      timestamp,
+      from: messageOrigin,
+      message,
+    };
+  });
+
+  const mergedMessages = [...persistedMessages, ...livekitMessages]
+    .filter((message, index, array) => array.findIndex((item) => item.id === message.id) === index)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
   return (
     <Conversation className={className} {...props}>
       <ConversationContent>
-        {messages.map((receivedMessage) => {
+        {mergedMessages.map((receivedMessage) => {
           const { id, timestamp, from, message } = receivedMessage;
           const locale = navigator?.language ?? 'en-US';
-          const messageOrigin = from?.isLocal ? 'user' : 'assistant';
+          const messageOrigin = from;
           const time = new Date(timestamp);
           const title = time.toLocaleTimeString(locale, { timeStyle: 'full' });
 

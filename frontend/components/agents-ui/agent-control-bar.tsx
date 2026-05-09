@@ -63,15 +63,21 @@ const MOTION_PROPS: MotionProps = {
 
 interface AgentChatInputProps {
   chatOpen: boolean;
+  disabled?: boolean;
   onSend?: (message: string) => void;
   className?: string;
 }
 
-function AgentChatInput({ chatOpen, onSend = async () => {}, className }: AgentChatInputProps) {
+function AgentChatInput({
+  chatOpen,
+  disabled = false,
+  onSend = async () => {},
+  className,
+}: AgentChatInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [isSending, setIsSending] = useState(false);
   const [message, setMessage] = useState<string>('');
-  const isDisabled = isSending || message.trim().length === 0;
+  const isDisabled = disabled || isSending || message.trim().length === 0;
 
   const handleSend = async () => {
     if (isDisabled) {
@@ -113,7 +119,7 @@ function AgentChatInput({ chatOpen, onSend = async () => {}, className }: AgentC
         autoFocus
         ref={inputRef}
         value={message}
-        disabled={!chatOpen || isSending}
+        disabled={!chatOpen || disabled || isSending}
         placeholder="输入消息..."
         onKeyDown={handleKeyDown}
         onChange={(e) => setMessage(e.target.value)}
@@ -202,6 +208,12 @@ export interface AgentControlBarProps extends UseInputControlsProps {
    */
   isConnected?: boolean;
   /**
+   * Whether the entire control bar should be visually disabled and non-interactive.
+   *
+   * @default false
+   */
+  disabled?: boolean;
+  /**
    * Whether the chat input interface is open.
    *
    * @default false
@@ -244,6 +256,7 @@ export function AgentControlBar({
   controls,
   isChatOpen = false,
   isConnected = false,
+  disabled = false,
   saveUserChoices = true,
   onDisconnect,
   onDeviceError,
@@ -287,9 +300,11 @@ export function AgentControlBar({
   return (
     <div
       aria-label="语音助手控制栏"
+      aria-disabled={disabled}
       className={cn(
         'bg-background border-input/50 dark:border-muted flex flex-col border p-3 drop-shadow-md/3',
         variant === 'livekit' ? 'rounded-[31px]' : 'rounded-lg',
+        disabled && 'pointer-events-none opacity-60',
         className
       )}
       {...props}
@@ -302,6 +317,7 @@ export function AgentControlBar({
       >
         <AgentChatInput
           chatOpen={isChatOpen || isChatOpenUncontrolled}
+          disabled={disabled}
           onSend={handleSendMessage}
           className={cn(variant === 'livekit' && '[&_button]:rounded-full')}
         />
@@ -317,7 +333,7 @@ export function AgentControlBar({
               aria-label="切换麦克风"
               source={Track.Source.Microphone}
               pressed={microphoneToggle.enabled}
-              disabled={microphoneToggle.pending}
+              disabled={disabled || microphoneToggle.pending}
               audioTrack={microphoneTrack}
               onPressedChange={microphoneToggle.toggle}
               onActiveDeviceChange={handleAudioDeviceChange}
@@ -340,7 +356,7 @@ export function AgentControlBar({
               source={Track.Source.Camera}
               pressed={cameraToggle.enabled}
               pending={cameraToggle.pending}
-              disabled={cameraToggle.pending}
+              disabled={disabled || cameraToggle.pending}
               onPressedChange={cameraToggle.toggle}
               onMediaDeviceError={handleCameraDeviceSelectError}
               onActiveDeviceChange={handleVideoDeviceChange}
@@ -360,7 +376,7 @@ export function AgentControlBar({
               aria-label="切换屏幕共享"
               source={Track.Source.ScreenShare}
               pressed={screenShareToggle.enabled}
-              disabled={screenShareToggle.pending}
+              disabled={disabled || screenShareToggle.pending}
               onPressedChange={screenShareToggle.toggle}
               className={cn(variant === 'livekit' && [LK_TOGGLE_VARIANT_2, 'rounded-full'])}
             />
@@ -372,6 +388,7 @@ export function AgentControlBar({
               variant={variant === 'outline' ? 'outline' : 'default'}
               pressed={isChatOpen || isChatOpenUncontrolled}
               aria-label="切换对话记录"
+              disabled={disabled}
               onPressedChange={(state) => {
                 if (!onIsChatOpenChange) setIsChatOpenUncontrolled(state);
                 else onIsChatOpenChange(state);
@@ -390,7 +407,7 @@ export function AgentControlBar({
         {visibleControls.leave && (
           <AgentDisconnectButton
             onClick={onDisconnect}
-            disabled={!isConnected}
+            disabled={disabled || !isConnected}
             className={cn(
               variant === 'livekit' &&
                 'bg-destructive/10 dark:bg-destructive/10 text-destructive hover:bg-destructive/20 dark:hover:bg-destructive/20 focus:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/4 rounded-full font-mono text-xs font-bold tracking-wider'

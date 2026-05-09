@@ -89,9 +89,38 @@ SCHEMA_STATEMENTS = [
         FOREIGN KEY (default_kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS chat_conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '新会话',
+        knowledge_base_id TEXT,
+        last_mode TEXT NOT NULL DEFAULT 'text',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_message_at TEXT,
+        last_message_preview TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE SET NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        external_message_id TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_mode TEXT NOT NULL DEFAULT 'text',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        UNIQUE (conversation_id, external_message_id)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_kb_categories_kb_id ON kb_categories(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON kb_files(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_category_id ON kb_files(category_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_jobs_kb_id ON kb_jobs(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_chunks_file_id ON kb_chunks(file_id)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_conversations_last_message_at ON chat_conversations(last_message_at)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id_created_at ON chat_messages(conversation_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_messages_external_message_id ON chat_messages(external_message_id)",
 ]
