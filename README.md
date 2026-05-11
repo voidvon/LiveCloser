@@ -54,9 +54,8 @@ cp .env.example .env
 - `LIVEKIT_URL`
 - `LIVEKIT_API_KEY`
 - `LIVEKIT_API_SECRET`
-- `OPENAI_COMPAT_MODEL`
-- `OPENAI_COMPAT_BASE_URL`
-- `OPENAI_COMPAT_API_KEY`
+
+对话模型改为在设置页写入数据库，不再从后端 `.env` 读取。
 
 前端 `.env.local`：
 

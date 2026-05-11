@@ -34,6 +34,19 @@ class EmbeddingProfileRecord:
 
 
 @dataclass
+class ChatModelProfileRecord:
+    id: str
+    name: str
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    is_default: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass
 class CategoryRecord:
     id: str
     kb_id: str

@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from livekit_sales_agent.knowledge.db import connect
+from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository
+
 
 def _default_kb_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "knowledge"
@@ -21,9 +24,6 @@ class Settings:
     kb_data_dir: Path
     kb_top_k: int
     price_stale_after_days: int
-    llm_model: str
-    llm_base_url: str
-    llm_api_key: str
     stt_descriptor: Optional[str]
     tts_descriptor: Optional[str]
     doubao_api_key: Optional[str]
@@ -61,9 +61,6 @@ class Settings:
             kb_data_dir=kb_data_dir,
             kb_top_k=int(os.getenv("KB_TOP_K", "3")),
             price_stale_after_days=int(os.getenv("PRICE_STALE_AFTER_DAYS", "3")),
-            llm_model=os.getenv("OPENAI_COMPAT_MODEL", ""),
-            llm_base_url=os.getenv("OPENAI_COMPAT_BASE_URL", ""),
-            llm_api_key=os.getenv("OPENAI_COMPAT_API_KEY", ""),
             stt_descriptor=_optional_env("STT_DESCRIPTOR"),
             tts_descriptor=_optional_env("TTS_DESCRIPTOR"),
             doubao_api_key=_optional_env("DOUBAO_API_KEY"),
@@ -97,16 +94,6 @@ class Settings:
         )
 
     def validate(self) -> None:
-        missing = []
-        if not self.llm_model:
-            missing.append("OPENAI_COMPAT_MODEL")
-        if not self.llm_base_url:
-            missing.append("OPENAI_COMPAT_BASE_URL")
-        if not self.llm_api_key:
-            missing.append("OPENAI_COMPAT_API_KEY")
-        if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-
         self._validate_doubao_voice()
 
     def _validate_doubao_voice(self) -> None:
@@ -156,3 +143,31 @@ class Settings:
 def _optional_env(name: str) -> Optional[str]:
     value = os.getenv(name, "").strip()
     return value or None
+
+
+@dataclass
+class ChatModelSettings:
+    model: str
+    base_url: str
+    api_key: str
+
+
+def load_chat_model_settings(db_path: Path) -> ChatModelSettings:
+    with connect(db_path) as conn:
+        repo = KnowledgeBaseRepository(conn)
+        record = repo.get_default_chat_model_profile()
+
+    if record is None:
+        raise ValueError("No default chat model configured in settings")
+    if not record.model:
+        raise ValueError("Default chat model is missing model ID")
+    if not record.base_url:
+        raise ValueError("Default chat model is missing base URL")
+    if not record.api_key:
+        raise ValueError("Default chat model is missing API key")
+
+    return ChatModelSettings(
+        model=record.model,
+        base_url=record.base_url,
+        api_key=record.api_key,
+    )

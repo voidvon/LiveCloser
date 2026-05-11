@@ -22,8 +22,9 @@ from livekit.agents import (
 from livekit.plugins import openai, silero
 
 from livekit_sales_agent.conversation import ConversationService
-from livekit_sales_agent.config import Settings
-from livekit_sales_agent.knowledge import RetrievalService
+from livekit_sales_agent.config import Settings, load_chat_model_settings
+from livekit_sales_agent.knowledge.db import ensure_database
+from livekit_sales_agent.knowledge.retrieval import RetrievalService
 from livekit_sales_agent.prompts import build_instructions
 from livekit_sales_agent.voice import build_stt, build_tts
 
@@ -31,6 +32,7 @@ from livekit_sales_agent.voice import build_stt, build_tts
 load_dotenv()
 
 settings = Settings.from_env()
+ensure_database(settings.kb_data_dir / "app.db")
 retrieval_service = RetrievalService(
     db_path=settings.kb_data_dir / "app.db",
     chroma_root=settings.kb_data_dir / "chroma",
@@ -205,14 +207,15 @@ class SalesAgent(Agent):
 
 def build_session(proc: JobProcess, metadata: SessionMetadata) -> AgentSession:
     settings.validate()
+    chat_model = load_chat_model_settings(settings.kb_data_dir / "app.db")
     stt_impl = None if metadata.is_text_mode else build_stt(settings)
     tts_impl = None if metadata.is_text_mode else build_tts(settings)
     session_kwargs: dict[str, Any] = {
         "vad": proc.userdata["vad"],
         "llm": openai.LLM(
-            model=settings.llm_model,
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
+            model=chat_model.model,
+            base_url=chat_model.base_url,
+            api_key=chat_model.api_key,
         ),
         "turn_handling": {"turn_detection": "vad"},
     }

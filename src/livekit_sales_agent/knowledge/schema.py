@@ -2,6 +2,19 @@ from __future__ import annotations
 
 SCHEMA_STATEMENTS = [
     """
+    CREATE TABLE IF NOT EXISTS chat_model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'openai_compatible',
+        model TEXT NOT NULL DEFAULT '',
+        base_url TEXT NOT NULL DEFAULT '',
+        api_key TEXT NOT NULL DEFAULT '',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS embedding_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -129,6 +142,8 @@ SCHEMA_STATEMENTS = [
         UNIQUE (conversation_id, external_message_id)
     )
     """,
+    "CREATE INDEX IF NOT EXISTS idx_chat_model_profiles_updated_at ON chat_model_profiles(updated_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_model_profiles_single_default ON chat_model_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_kb_categories_kb_id ON kb_categories(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_embedding_profiles_updated_at ON embedding_profiles(updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON kb_files(kb_id)",

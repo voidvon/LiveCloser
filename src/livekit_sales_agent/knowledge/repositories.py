@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from .models import (
     CategoryRecord,
+    ChatModelProfileRecord,
     ChunkRecord,
     EmbeddingProfileRecord,
     FileRecord,
@@ -25,6 +26,10 @@ def _row_to_kb(row: sqlite3.Row) -> KnowledgeBaseRecord:
 
 def _row_to_embedding_profile(row: sqlite3.Row) -> EmbeddingProfileRecord:
     return EmbeddingProfileRecord(**dict(row))
+
+
+def _row_to_chat_model_profile(row: sqlite3.Row) -> ChatModelProfileRecord:
+    return ChatModelProfileRecord(**dict(row))
 
 
 def _row_to_category(row: sqlite3.Row) -> CategoryRecord:
@@ -46,6 +51,143 @@ def _row_to_chunk(row: sqlite3.Row) -> ChunkRecord:
 class KnowledgeBaseRepository:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
+
+    def list_chat_model_profiles(self) -> list[ChatModelProfileRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM chat_model_profiles
+            ORDER BY is_default DESC, updated_at DESC, created_at DESC
+            """
+        ).fetchall()
+        return [_row_to_chat_model_profile(row) for row in rows]
+
+    def get_chat_model_profile(self, profile_id: str) -> Optional[ChatModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM chat_model_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        return _row_to_chat_model_profile(row) if row else None
+
+    def get_default_chat_model_profile(self) -> Optional[ChatModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM chat_model_profiles WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        return _row_to_chat_model_profile(row) if row else None
+
+    def create_chat_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str,
+        is_default: bool,
+    ) -> ChatModelProfileRecord:
+        record_id = str(uuid4())
+        now = utc_now()
+        should_default = is_default or self.get_default_chat_model_profile() is None
+        if should_default:
+            self._conn.execute("UPDATE chat_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            INSERT INTO chat_model_profiles (
+                id, name, provider, model, base_url, api_key, is_default, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                name,
+                provider,
+                model,
+                base_url,
+                api_key,
+                1 if should_default else 0,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        record = self.get_chat_model_profile(record_id)
+        assert record is not None
+        return record
+
+    def update_chat_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str,
+        is_default: bool,
+    ) -> Optional[ChatModelProfileRecord]:
+        existing = self.get_chat_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        should_default = (
+            bool(existing.is_default)
+            or is_default
+            or self.get_default_chat_model_profile() is None
+        )
+        if is_default:
+            self._conn.execute("UPDATE chat_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            UPDATE chat_model_profiles
+            SET name = ?, provider = ?, model = ?, base_url = ?, api_key = ?, is_default = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, provider, model, base_url, api_key, 1 if should_default else 0, now, profile_id),
+        )
+        self._conn.commit()
+        return self.get_chat_model_profile(profile_id)
+
+    def set_default_chat_model_profile(self, profile_id: str) -> Optional[ChatModelProfileRecord]:
+        existing = self.get_chat_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        self._conn.execute("UPDATE chat_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            "UPDATE chat_model_profiles SET is_default = 1, updated_at = ? WHERE id = ?",
+            (now, profile_id),
+        )
+        self._conn.commit()
+        return self.get_chat_model_profile(profile_id)
+
+    def delete_chat_model_profile(self, profile_id: str) -> bool:
+        existing = self.get_chat_model_profile(profile_id)
+        if existing is None:
+            return False
+
+        cursor = self._conn.execute("DELETE FROM chat_model_profiles WHERE id = ?", (profile_id,))
+        if cursor.rowcount <= 0:
+            self._conn.commit()
+            return False
+
+        if existing.is_default:
+            replacement = self._conn.execute(
+                """
+                SELECT id
+                FROM chat_model_profiles
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if replacement is not None:
+                self._conn.execute(
+                    "UPDATE chat_model_profiles SET is_default = 1 WHERE id = ?",
+                    (replacement["id"],),
+                )
+
+        self._conn.commit()
+        return True
 
     def list_embedding_profiles(self) -> list[EmbeddingProfileRecord]:
         rows = self._conn.execute(

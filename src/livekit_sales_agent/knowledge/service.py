@@ -22,6 +22,65 @@ class KnowledgeService:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_knowledge_bases()
 
+    def list_chat_model_profiles(self):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.list_chat_model_profiles()
+
+    def create_chat_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.create_chat_model_profile(
+                name=name,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                is_default=is_default,
+            )
+
+    def update_chat_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.update_chat_model_profile(
+                profile_id,
+                name=name,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                api_key=api_key,
+                is_default=is_default,
+            )
+
+    def set_default_chat_model_profile(self, profile_id: str):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.set_default_chat_model_profile(profile_id)
+
+    def delete_chat_model_profile(self, profile_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.delete_chat_model_profile(profile_id)
+
     def list_embedding_profiles(self):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)

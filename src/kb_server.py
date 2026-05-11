@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from livekit_sales_agent.conversation import ConversationService
 from livekit_sales_agent.conversation.service import _UNSET
-from livekit_sales_agent.knowledge import KnowledgeService, ensure_database
+from livekit_sales_agent.knowledge.db import ensure_database
+from livekit_sales_agent.knowledge.service import KnowledgeService
 
 
 def _data_root() -> Path:
@@ -68,6 +69,15 @@ class EmbeddingProfilePayload(BaseModel):
     api_key_env: str = ""
 
 
+class ChatModelProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = "openai_compatible"
+    model: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    is_default: bool = False
+
+
 class ConversationPayload(BaseModel):
     title: str = "新会话"
     knowledge_base_id: Optional[str] = None
@@ -93,6 +103,40 @@ def list_knowledge_bases():
 @app.get("/embedding-profiles")
 def list_embedding_profiles():
     return service.list_embedding_profiles()
+
+
+@app.get("/chat-model-profiles")
+def list_chat_model_profiles():
+    return service.list_chat_model_profiles()
+
+
+@app.post("/chat-model-profiles")
+def create_chat_model_profile(payload: ChatModelProfilePayload):
+    return service.create_chat_model_profile(**payload.model_dump())
+
+
+@app.patch("/chat-model-profiles/{profile_id}")
+def update_chat_model_profile(profile_id: str, payload: ChatModelProfilePayload):
+    record = service.update_chat_model_profile(profile_id, **payload.model_dump())
+    if record is None:
+        raise HTTPException(status_code=404, detail="Chat model profile not found")
+    return record
+
+
+@app.post("/chat-model-profiles/{profile_id}/default")
+def set_default_chat_model_profile(profile_id: str):
+    record = service.set_default_chat_model_profile(profile_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Chat model profile not found")
+    return record
+
+
+@app.delete("/chat-model-profiles/{profile_id}")
+def delete_chat_model_profile(profile_id: str):
+    deleted = service.delete_chat_model_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chat model profile not found")
+    return {"ok": True}
 
 
 @app.post("/embedding-profiles")
