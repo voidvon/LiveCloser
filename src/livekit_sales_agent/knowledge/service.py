@@ -23,6 +23,27 @@ class KnowledgeService:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_knowledge_bases()
 
+    @staticmethod
+    def _ensure_knowledge_base_exists(repo: KnowledgeBaseRepository, kb_id: str) -> None:
+        if repo.get_knowledge_base(kb_id) is None:
+            raise ValueError("知识库不存在")
+
+    @staticmethod
+    def _validate_category_belongs_to_kb(
+        repo: KnowledgeBaseRepository,
+        *,
+        kb_id: str,
+        category_id: Optional[str],
+        field_name: str = "分类",
+    ) -> None:
+        if not category_id:
+            return
+        category = repo.get_category(category_id)
+        if category is None:
+            raise ValueError(f"{field_name}不存在")
+        if category.kb_id != kb_id:
+            raise ValueError(f"{field_name}不属于当前知识库")
+
     def list_chat_model_profiles(self):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
@@ -507,6 +528,13 @@ class KnowledgeService:
     ):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
+            self._ensure_knowledge_base_exists(repo, kb_id)
+            self._validate_category_belongs_to_kb(
+                repo,
+                kb_id=kb_id,
+                category_id=parent_id,
+                field_name="父级分类",
+            )
             return repo.create_category(
                 kb_id=kb_id, name=name, parent_id=parent_id, sort_order=sort_order
             )
@@ -525,6 +553,15 @@ class KnowledgeService:
         mime_type: str,
         category_id: Optional[str],
     ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            self._ensure_knowledge_base_exists(repo, kb_id)
+            self._validate_category_belongs_to_kb(
+                repo,
+                kb_id=kb_id,
+                category_id=category_id,
+            )
+
         saved_path, content_hash = save_uploaded_file(
             root_dir=self._files_root,
             kb_id=kb_id,

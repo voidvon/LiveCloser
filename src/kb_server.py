@@ -336,7 +336,10 @@ def list_categories(kb_id: str):
 
 @app.post("/knowledge-bases/{kb_id}/categories")
 def create_category(kb_id: str, payload: CategoryPayload):
-    return service.create_category(kb_id=kb_id, **payload.model_dump())
+    try:
+        return service.create_category(kb_id=kb_id, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/knowledge-bases/{kb_id}/files")
@@ -353,13 +356,16 @@ async def upload_file(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    file_record, job_record = service.upload_file(
-        kb_id=kb_id,
-        original_name=file.filename or "untitled",
-        content=content,
-        mime_type=file.content_type or "application/octet-stream",
-        category_id=category_id,
-    )
+    try:
+        file_record, job_record = service.upload_file(
+            kb_id=kb_id,
+            original_name=file.filename or "untitled",
+            content=content,
+            mime_type=file.content_type or "application/octet-stream",
+            category_id=category_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"file": file_record, "job": job_record}
 
 

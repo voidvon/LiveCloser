@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, RefreshCcw, Settings2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +18,8 @@ import { Input } from '@/components/ui/input';
 import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
+import { TreeView, type TreeViewItem } from '@/components/ui/tree-view';
+import { cn } from '@/lib/shadcn/utils';
 
 type KnowledgeBase = {
   id: string;
@@ -53,6 +56,10 @@ type Category = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+};
+
+type CategoryTreeNode = Category & {
+  children: CategoryTreeNode[];
 };
 
 type KbFile = {
@@ -114,10 +121,11 @@ async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: objec
   return response.json();
 }
 
-export function KbPageClient() {
+export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | null } = {}) {
+  const router = useRouter();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [embeddingProfiles, setEmbeddingProfiles] = useState<EmbeddingProfile[]>([]);
-  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [files, setFiles] = useState<KbFile[]>([]);
   const [jobs, setJobs] = useState<KbJob[]>([]);
@@ -132,8 +140,7 @@ export function KbPageClient() {
   const [retryingFileId, setRetryingFileId] = useState<string | null>(null);
   const [createKbForm, setCreateKbForm] = useState<CreateKbForm>(DEFAULT_CREATE_KB_FORM);
   const [categoryName, setCategoryName] = useState('');
-  const [uploadCategoryId, setUploadCategoryId] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const isDetailRoute = Boolean(selectedKbId);
 
   useEffect(() => {
     void loadKnowledgeBases();
@@ -141,6 +148,7 @@ export function KbPageClient() {
 
   useEffect(() => {
     if (!selectedKbId) {
+      setSelectedCategoryId(null);
       setCategories([]);
       setFiles([]);
       setJobs([]);
@@ -161,6 +169,58 @@ export function KbPageClient() {
         : null,
     [embeddingProfiles, selectedKb]
   );
+  const categoryMap = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories]
+  );
+  const categoryTree = useMemo(() => buildCategoryTree(categories), [categories]);
+  const categoryPathById = useMemo(() => buildCategoryPathMap(categories), [categories]);
+  const directFileCountByCategoryId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const file of files) {
+      if (!file.category_id) continue;
+      map.set(file.category_id, (map.get(file.category_id) ?? 0) + 1);
+    }
+    return map;
+  }, [files]);
+  const subtreeFileCountByCategoryId = useMemo(
+    () => buildSubtreeFileCountMap(categoryTree, directFileCountByCategoryId),
+    [categoryTree, directFileCountByCategoryId]
+  );
+  const treeItems = useMemo<TreeViewItem<Category>[]>(
+    () => buildTreeViewItems(categoryTree, subtreeFileCountByCategoryId),
+    [categoryTree, subtreeFileCountByCategoryId]
+  );
+  const defaultExpandedIds = useMemo(() => {
+    if (!selectedCategoryId) {
+      return collectExpandableNodeIds(categoryTree);
+    }
+    return collectAncestorCategoryIds(categories, selectedCategoryId);
+  }, [categories, categoryTree, selectedCategoryId]);
+  const visibleCategoryIds = useMemo(
+    () =>
+      selectedCategoryId
+        ? new Set(collectDescendantCategoryIds(categoryTree, selectedCategoryId))
+        : null,
+    [categoryTree, selectedCategoryId]
+  );
+  const selectedCategory = useMemo(
+    () => (selectedCategoryId ? (categoryMap.get(selectedCategoryId) ?? null) : null),
+    [categoryMap, selectedCategoryId]
+  );
+  const selectedCategoryPath = useMemo(
+    () =>
+      selectedCategoryId
+        ? (categoryPathById.get(selectedCategoryId) ?? selectedCategory?.name ?? '')
+        : '',
+    [categoryPathById, selectedCategory, selectedCategoryId]
+  );
+  const visibleFiles = useMemo(() => {
+    if (!visibleCategoryIds) {
+      return files;
+    }
+    return files.filter((file) => file.category_id && visibleCategoryIds.has(file.category_id));
+  }, [files, visibleCategoryIds]);
 
   function openCreateKbModal() {
     setCreateKbForm({
@@ -185,9 +245,6 @@ export function KbPageClient() {
       ]);
       setKnowledgeBases(nextKnowledgeBases);
       setEmbeddingProfiles(nextProfiles);
-      setSelectedKbId((current) =>
-        current && nextKnowledgeBases.some((item) => item.id === current) ? current : null
-      );
       setState('idle');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载知识库列表失败');
@@ -207,6 +264,9 @@ export function KbPageClient() {
       setCategories(nextCategories);
       setFiles(nextFiles);
       setJobs(nextJobs);
+      setSelectedCategoryId((current) =>
+        current && nextCategories.some((item) => item.id === current) ? current : null
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载知识库数据失败');
     } finally {
@@ -241,7 +301,8 @@ export function KbPageClient() {
       });
       setKnowledgeBases((current) => [record, ...current]);
       closeCreateKbModal();
-      setSelectedKbId(record.id);
+      setSelectedCategoryId(null);
+      router.push(`/kb/${record.id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '创建知识库失败');
     } finally {
@@ -262,12 +323,20 @@ export function KbPageClient() {
     try {
       setCreatingCategory(true);
       setError(null);
-      await sendJson<Category>(`/api/kb/knowledge-bases/${selectedKbId}/categories`, 'POST', {
-        name: categoryName.trim(),
-        parent_id: null,
-        sort_order: categories.length,
-      });
+      const siblingCount = categories.filter(
+        (category) => (category.parent_id ?? null) === (selectedCategoryId ?? null)
+      ).length;
+      const record = await sendJson<Category>(
+        `/api/kb/knowledge-bases/${selectedKbId}/categories`,
+        'POST',
+        {
+          name: categoryName.trim(),
+          parent_id: selectedCategoryId,
+          sort_order: siblingCount,
+        }
+      );
       setCategoryName('');
+      setSelectedCategoryId(record.id);
       await loadKnowledgeBaseDetails(selectedKbId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '创建分类失败');
@@ -276,13 +345,13 @@ export function KbPageClient() {
     }
   }
 
-  async function handleUploadFile() {
+  async function handleUploadFile(file: File) {
     if (!selectedKbId) {
       setError('请先选择知识库');
       return;
     }
-    if (!uploadFile) {
-      setError('请选择一个文件');
+    if (!selectedCategoryId) {
+      setError('请先在左侧选择一个分类');
       return;
     }
 
@@ -290,10 +359,8 @@ export function KbPageClient() {
       setUploading(true);
       setError(null);
       const formData = new FormData();
-      formData.append('file', uploadFile);
-      if (uploadCategoryId) {
-        formData.append('category_id', uploadCategoryId);
-      }
+      formData.append('file', file);
+      formData.append('category_id', selectedCategoryId);
       const response = await fetch(`/api/kb/knowledge-bases/${selectedKbId}/files`, {
         method: 'POST',
         body: formData,
@@ -301,8 +368,6 @@ export function KbPageClient() {
       if (!response.ok) {
         throw new Error(await response.text());
       }
-      setUploadFile(null);
-      setUploadCategoryId('');
       await loadKnowledgeBaseDetails(selectedKbId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '上传文件失败');
@@ -337,11 +402,6 @@ export function KbPageClient() {
     }
   }
 
-  const categoryMap = useMemo(
-    () => new Map(categories.map((category) => [category.id, category])),
-    [categories]
-  );
-
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))]">
       <div className="px-4 py-6 md:px-8 md:py-8">
@@ -355,38 +415,50 @@ export function KbPageClient() {
           </Surface>
         ) : null}
 
-        {selectedKb ? (
+        {isDetailRoute ? (
+          selectedKb ? (
           <KnowledgeBaseDetailView
             categories={categories}
-            categoryMap={categoryMap}
             categoryName={categoryName}
+            categoryPathById={categoryPathById}
+            defaultExpandedIds={defaultExpandedIds}
             creatingCategory={creatingCategory}
             detailsLoading={detailsLoading}
-            files={files}
+            files={visibleFiles}
+            fileCountByCategoryId={subtreeFileCountByCategoryId}
             jobs={jobs}
             jobsModalOpen={jobsModalOpen}
             retryingFileId={retryingFileId}
+            selectedCategory={selectedCategory}
+            selectedCategoryId={selectedCategoryId}
+            selectedCategoryPath={selectedCategoryPath}
             selectedKb={selectedKb}
             selectedProfile={selectedProfile}
+            treeItems={treeItems}
+            totalFileCount={files.length}
             uploading={uploading}
-            uploadCategoryId={uploadCategoryId}
-            onBack={() => setSelectedKbId(null)}
+            onBack={() => router.push('/kb')}
             onCategoryNameChange={setCategoryName}
+            onCategorySelect={setSelectedCategoryId}
             onCreateCategory={() => void handleCreateCategory()}
             onJobsModalChange={setJobsModalOpen}
             onRefresh={() => void loadKnowledgeBaseDetails(selectedKb.id)}
             onRetryFile={(fileId) => void handleRetryFile(fileId)}
-            onUpload={() => void handleUploadFile()}
-            onUploadCategoryIdChange={setUploadCategoryId}
-            onUploadFileChange={setUploadFile}
+            onUploadFile={(file) => void handleUploadFile(file)}
           />
+          ) : (
+            <KnowledgeBaseDetailFallback
+              loading={state === 'loading'}
+              onBack={() => router.push('/kb')}
+            />
+          )
         ) : (
           <KnowledgeBaseListView
             embeddingProfiles={embeddingProfiles}
             knowledgeBases={knowledgeBases}
             onCreateKbClick={openCreateKbModal}
             onRefresh={() => void loadKnowledgeBases()}
-            onSelectKb={setSelectedKbId}
+            onSelectKb={(kbId) => router.push(`/kb/${kbId}`)}
             state={state}
           />
         )}
@@ -493,6 +565,32 @@ export function KbPageClient() {
   );
 }
 
+function KnowledgeBaseDetailFallback({
+  loading,
+  onBack,
+}: {
+  loading: boolean;
+  onBack: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <Button variant="ghost" className="w-fit rounded-full px-0" onClick={onBack}>
+        <ArrowLeft className="mr-2 size-4" />
+        返回知识库列表
+      </Button>
+
+      {loading ? (
+        <KbGhost lines={1} />
+      ) : (
+        <EmptyBlock
+          title="知识库不存在"
+          description="当前链接对应的知识库不存在，或者已经被删除。"
+        />
+      )}
+    </div>
+  );
+}
+
 function KnowledgeBaseListView({
   embeddingProfiles,
   knowledgeBases,
@@ -515,7 +613,7 @@ function KnowledgeBaseListView({
           <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">知识库</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">知识库列表</h1>
           <p className="text-muted-foreground mt-2 text-sm leading-6 md:text-base">
-            先选择一个知识库进入详情页，再管理文件、分类、模型绑定和索引任务。
+            先选择一个知识库进入详情页，再管理分类树、资料文档和索引任务。
           </p>
         </div>
 
@@ -592,52 +690,68 @@ function KnowledgeBaseListView({
 
 function KnowledgeBaseDetailView({
   categories,
-  categoryMap,
   categoryName,
+  categoryPathById,
+  defaultExpandedIds,
   creatingCategory,
   detailsLoading,
   files,
+  fileCountByCategoryId,
   jobs,
   jobsModalOpen,
   retryingFileId,
+  selectedCategory,
+  selectedCategoryId,
+  selectedCategoryPath,
   selectedKb,
   selectedProfile,
+  treeItems,
+  totalFileCount,
   uploading,
-  uploadCategoryId,
   onBack,
   onCategoryNameChange,
+  onCategorySelect,
   onCreateCategory,
   onJobsModalChange,
   onRefresh,
   onRetryFile,
-  onUpload,
-  onUploadCategoryIdChange,
-  onUploadFileChange,
+  onUploadFile,
 }: {
   categories: Category[];
-  categoryMap: Map<string, Category>;
   categoryName: string;
+  categoryPathById: Map<string, string>;
+  defaultExpandedIds: string[];
   creatingCategory: boolean;
   detailsLoading: boolean;
   files: KbFile[];
+  fileCountByCategoryId: Map<string, number>;
   jobs: KbJob[];
   jobsModalOpen: boolean;
   retryingFileId: string | null;
+  selectedCategory: Category | null;
+  selectedCategoryId: string | null;
+  selectedCategoryPath: string;
   selectedKb: KnowledgeBase;
   selectedProfile: EmbeddingProfile | null;
+  treeItems: TreeViewItem<Category>[];
+  totalFileCount: number;
   uploading: boolean;
-  uploadCategoryId: string;
   onBack: () => void;
   onCategoryNameChange: (value: string) => void;
+  onCategorySelect: (categoryId: string | null) => void;
   onCreateCategory: () => void;
   onJobsModalChange: (open: boolean) => void;
   onRefresh: () => void;
   onRetryFile: (fileId: string) => void;
-  onUpload: () => void;
-  onUploadCategoryIdChange: (value: string) => void;
-  onUploadFileChange: (file: File | null) => void;
+  onUploadFile: (file: File) => void;
 }) {
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const modelLabel = selectedProfile?.name || selectedKb.embedding_model || '未绑定模型';
+  const createLabel = selectedCategory ? '新增子分类' : '新增一级分类';
+  const createHint = selectedCategory
+    ? `将在「${selectedCategoryPath}」下创建子分类`
+    : '当前创建的是一级分类';
+  const fileScopeTitle = selectedCategory ? selectedCategory.name : '全部资料';
 
   return (
     <>
@@ -647,23 +761,6 @@ function KnowledgeBaseDetailView({
             <ArrowLeft className="mr-2 size-4" />
             返回知识库列表
           </Button>
-
-          <div className="flex gap-2">
-            <Button variant="outline" className="rounded-full" onClick={onRefresh}>
-              <RefreshCcw className="mr-2 size-4" />
-              刷新
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => onJobsModalChange(true)}
-            >
-              任务列表
-              <span className="border-border/70 bg-background/80 ml-2 rounded-full border px-2 py-0.5 text-xs">
-                {jobs.length}
-              </span>
-            </Button>
-          </div>
         </div>
 
         <div>
@@ -681,153 +778,228 @@ function KnowledgeBaseDetailView({
       </div>
 
       <section className="space-y-4">
-        <Surface padding="md">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">知识库资料</h2>
-              <p className="text-muted-foreground text-sm">
-                分类文件、上传资料，并跟踪当前索引状态。
-              </p>
-            </div>
-            {detailsLoading ? (
-              <span className="text-muted-foreground text-sm">正在刷新资料...</span>
-            ) : null}
-          </div>
+        {detailsLoading ? (
+          <span className="text-muted-foreground text-sm">正在刷新资料...</span>
+        ) : null}
 
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
-            <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-medium">分类</h3>
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium">分类树</h3>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {selectedCategory ? `当前：${selectedCategoryPath}` : '当前：全部资料'}
+                  </p>
+                </div>
                 <span className="text-muted-foreground text-xs">{categories.length} 个</span>
               </div>
-              <div className="mb-3 flex gap-2">
+
+              <div className="mb-4 space-y-2">
                 <Input
                   value={categoryName}
                   onChange={(event) => onCategoryNameChange(event.target.value)}
-                  placeholder="输入分类名称"
-                  className="min-w-0 flex-1"
+                  placeholder={selectedCategory ? '输入子分类名称' : '输入一级分类名称'}
                 />
-                <Button
-                  variant="outline"
-                  className="rounded-full"
-                  size="sm"
-                  onClick={onCreateCategory}
-                  disabled={creatingCategory}
-                >
-                  <Plus className="mr-2 size-4" />
-                  {creatingCategory ? '创建中...' : '新增'}
-                </Button>
-              </div>
-              {categories.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  还没有分类。上传时可以先保持未分类。
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {categories.map((category) => (
-                    <span
-                      key={category.id}
-                      className="border-primary/18 bg-primary/10 rounded-full border px-3 py-1 text-sm"
-                    >
-                      {category.name}
-                    </span>
-                  ))}
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-muted-foreground text-xs">{createHint}</p>
+                  <Button
+                    variant="outline"
+                    className="rounded-full"
+                    size="sm"
+                    onClick={onCreateCategory}
+                    disabled={creatingCategory}
+                  >
+                    <Plus className="mr-2 size-4" />
+                    {creatingCategory ? '创建中...' : createLabel}
+                  </Button>
                 </div>
-              )}
-            </Surface>
-
-            <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
-              <h3 className="mb-3 font-medium">上传资料</h3>
-              <div className="space-y-3">
-                <FieldSelect
-                  value={uploadCategoryId}
-                  onValueChange={onUploadCategoryIdChange}
-                  placeholder="未分类"
-                  options={categories.map((category) => ({
-                    value: category.id,
-                    label: category.name,
-                  }))}
-                />
-                <input
-                  type="file"
-                  onChange={(event) => onUploadFileChange(event.target.files?.[0] ?? null)}
-                  className="border-border/60 bg-background/60 hover:border-primary/20 focus:border-primary/30 block w-full rounded-2xl border px-3 py-2 text-sm transition-colors outline-none"
-                />
-                <Button className="w-full rounded-full" onClick={onUpload} disabled={uploading}>
-                  <Upload className="mr-2 size-4" />
-                  {uploading ? '上传中...' : '上传并触发索引'}
-                </Button>
               </div>
-            </Surface>
-          </div>
-        </Surface>
 
-        <Surface className="overflow-hidden" padding="none">
-          <div className="border-border/60 flex items-center justify-between border-b px-4 py-4">
-            <div>
-              <h2 className="text-lg font-semibold">资料列表</h2>
-              <p className="text-muted-foreground text-sm">当前知识库下的全部文件及处理状态。</p>
-            </div>
-            <span className="text-muted-foreground text-sm">{files.length} 个文件</span>
-          </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => onCategorySelect(null)}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+                    selectedCategoryId === null
+                      ? 'border-primary/25 bg-primary/10'
+                      : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
+                  )}
+                >
+                  <span className="font-medium">全部资料</span>
+                  <span className="text-muted-foreground text-xs">{totalFileCount}</span>
+                </button>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="bg-background/44">
-                <tr>
-                  <th className="px-4 py-3 font-medium">文件</th>
-                  <th className="px-4 py-3 font-medium">分类</th>
-                  <th className="px-4 py-3 font-medium">类型</th>
-                  <th className="px-4 py-3 font-medium">大小</th>
-                  <th className="px-4 py-3 font-medium">状态</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {files.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-muted-foreground px-4 py-6">
-                      还没有上传任何资料。
-                    </td>
-                  </tr>
+                {treeItems.length === 0 ? (
+                  <p className="text-muted-foreground px-1 pt-2 text-sm">
+                    还没有分类，先新增一个一级分类再上传资料。
+                  </p>
                 ) : (
-                  files.map((file) => (
-                    <tr key={file.id} className="border-border/60 border-t">
-                      <td className="px-4 py-3">{file.original_name}</td>
-                      <td className="px-4 py-3">
-                        {file.category_id
-                          ? (categoryMap.get(file.category_id)?.name ?? '-')
-                          : '未分类'}
-                      </td>
-                      <td className="px-4 py-3">{file.mime_type || '-'}</td>
-                      <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
-                      <td className="px-4 py-3">
-                        <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-xs uppercase">
-                          {file.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {file.status === 'failed' ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-full"
-                            onClick={() => onRetryFile(file.id)}
-                            disabled={retryingFileId === file.id}
-                          >
-                            {retryingFileId === file.id ? '重试中...' : '重试索引'}
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">-</span>
+                  <TreeView
+                    data={treeItems}
+                    selectedItemId={selectedCategoryId}
+                    defaultExpandedItemIds={defaultExpandedIds}
+                    onSelectChange={(item) => onCategorySelect(item?.id ?? null)}
+                    renderItem={({ item, hasChildren, isExpanded, isSelected, select, toggle }) => (
+                      <div
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+                          isSelected
+                            ? 'border-primary/25 bg-primary/10'
+                            : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
                         )}
-                      </td>
-                    </tr>
-                  ))
+                      >
+                        {hasChildren ? (
+                          <button
+                            type="button"
+                            onClick={toggle}
+                            className={cn(
+                              'text-muted-foreground inline-flex size-4 shrink-0 items-center justify-center transition-transform',
+                              isExpanded && 'rotate-90'
+                            )}
+                            aria-label={isExpanded ? '收起分类' : '展开分类'}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="size-4"
+                              aria-hidden="true"
+                            >
+                              <path d="m9 18 6-6-6-6" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <span className="inline-flex size-4 shrink-0" aria-hidden="true" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={select}
+                          className={cn('min-w-0 flex-1 truncate text-left', item.className)}
+                        >
+                          {item.name}
+                        </button>
+                        <span className="text-muted-foreground shrink-0 text-xs">
+                          {fileCountByCategoryId.get(item.id) ?? 0}
+                        </span>
+                      </div>
+                    )}
+                  />
                 )}
-              </tbody>
-            </table>
+              </div>
+          </Surface>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-start gap-2">
+              <Button
+                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Upload className="mr-2 size-4" />
+                {uploading ? '上传中...' : '上传文档'}
+              </Button>
+              <Button variant="outline" className="rounded-full" onClick={onRefresh}>
+                <RefreshCcw className="mr-2 size-4" />
+                刷新
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-full"
+                onClick={() => onJobsModalChange(true)}
+              >
+                任务列表
+                <span className="border-border/70 bg-background/80 ml-2 rounded-full border px-2 py-0.5 text-xs">
+                  {jobs.length}
+                </span>
+              </Button>
+            </div>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                event.target.value = '';
+                if (!file) {
+                  return;
+                }
+                onUploadFile(file);
+              }}
+            />
+
+            <Surface className="overflow-hidden" padding="none">
+                <div className="border-border/60 flex items-center justify-between border-b px-4 py-4">
+                  <div>
+                    <h2 className="text-lg font-semibold">{fileScopeTitle}</h2>
+                  </div>
+                  <span className="text-muted-foreground text-sm">{files.length} 个文件</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead className="bg-background/44">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">文件</th>
+                        <th className="px-4 py-3 font-medium">分类路径</th>
+                        <th className="px-4 py-3 font-medium">类型</th>
+                        <th className="px-4 py-3 font-medium">大小</th>
+                        <th className="px-4 py-3 font-medium">状态</th>
+                        <th className="px-4 py-3 font-medium">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {files.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-muted-foreground px-4 py-6">
+                            {selectedCategory
+                              ? '当前分类下还没有资料文档。'
+                              : '当前知识库还没有上传任何资料。'}
+                          </td>
+                        </tr>
+                      ) : (
+                        files.map((file) => (
+                          <tr key={file.id} className="border-border/60 border-t">
+                            <td className="px-4 py-3">{file.original_name}</td>
+                            <td className="px-4 py-3">
+                              {file.category_id
+                                ? (categoryPathById.get(file.category_id) ?? '-')
+                                : '未分类'}
+                            </td>
+                            <td className="px-4 py-3">{file.mime_type || '-'}</td>
+                            <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
+                            <td className="px-4 py-3">
+                              <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-xs uppercase">
+                                {file.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {file.status === 'failed' ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-full"
+                                  onClick={() => onRetryFile(file.id)}
+                                  disabled={retryingFileId === file.id}
+                                >
+                                  {retryingFileId === file.id ? '重试中...' : '重试索引'}
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+            </Surface>
+            </div>
           </div>
-        </Surface>
       </section>
 
       <Dialog open={jobsModalOpen} onOpenChange={onJobsModalChange}>
@@ -906,6 +1078,142 @@ function KbGhost({ lines }: { lines: number }) {
       ))}
     </div>
   );
+}
+
+function buildCategoryTree(categories: Category[]): CategoryTreeNode[] {
+  const nodeMap = new Map<string, CategoryTreeNode>();
+  for (const category of categories) {
+    nodeMap.set(category.id, { ...category, children: [] });
+  }
+
+  const roots: CategoryTreeNode[] = [];
+  for (const category of categories) {
+    const node = nodeMap.get(category.id);
+    if (!node) continue;
+    if (category.parent_id && nodeMap.has(category.parent_id)) {
+      nodeMap.get(category.parent_id)?.children.push(node);
+      continue;
+    }
+    roots.push(node);
+  }
+
+  return roots;
+}
+
+function buildCategoryPathMap(categories: Category[]): Map<string, string> {
+  const categoryMap = new Map(categories.map((category) => [category.id, category]));
+  const pathMap = new Map<string, string>();
+
+  function resolvePath(categoryId: string): string {
+    const cached = pathMap.get(categoryId);
+    if (cached) {
+      return cached;
+    }
+
+    const category = categoryMap.get(categoryId);
+    if (!category) {
+      return '';
+    }
+
+    const path = category.parent_id
+      ? [resolvePath(category.parent_id), category.name].filter(Boolean).join(' / ')
+      : category.name;
+    pathMap.set(categoryId, path);
+    return path;
+  }
+
+  for (const category of categories) {
+    resolvePath(category.id);
+  }
+
+  return pathMap;
+}
+
+function buildSubtreeFileCountMap(
+  nodes: CategoryTreeNode[],
+  directFileCountByCategoryId: Map<string, number>
+): Map<string, number> {
+  const countMap = new Map<string, number>();
+
+  function visit(node: CategoryTreeNode): number {
+    let total = directFileCountByCategoryId.get(node.id) ?? 0;
+    for (const child of node.children) {
+      total += visit(child);
+    }
+    countMap.set(node.id, total);
+    return total;
+  }
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return countMap;
+}
+
+function collectDescendantCategoryIds(nodes: CategoryTreeNode[], categoryId: string): string[] {
+  const ids: string[] = [];
+
+  function visit(node: CategoryTreeNode, include: boolean) {
+    const matched = include || node.id === categoryId;
+    if (matched) {
+      ids.push(node.id);
+    }
+    for (const child of node.children) {
+      visit(child, matched);
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node, false);
+  }
+
+  return ids;
+}
+
+function collectExpandableNodeIds(nodes: CategoryTreeNode[]): string[] {
+  const ids: string[] = [];
+
+  function visit(node: CategoryTreeNode) {
+    if (node.children.length > 0) {
+      ids.push(node.id);
+    }
+    for (const child of node.children) {
+      visit(child);
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return ids;
+}
+
+function collectAncestorCategoryIds(categories: Category[], categoryId: string): string[] {
+  const categoryMap = new Map(categories.map((category) => [category.id, category]));
+  const ids = new Set<string>();
+
+  let current = categoryMap.get(categoryId) ?? null;
+  while (current?.parent_id) {
+    ids.add(current.parent_id);
+    current = categoryMap.get(current.parent_id) ?? null;
+  }
+
+  return Array.from(ids);
+}
+
+function buildTreeViewItems(
+  nodes: CategoryTreeNode[],
+  fileCountByCategoryId: Map<string, number>
+): TreeViewItem<Category>[] {
+  void fileCountByCategoryId;
+  return nodes.map((node) => ({
+    id: node.id,
+    name: node.name,
+    data: node,
+    children: buildTreeViewItems(node.children, fileCountByCategoryId),
+  }));
 }
 
 function formatBytes(bytes: number) {
