@@ -244,12 +244,12 @@ export function SettingsPageClient() {
 
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))] px-4 py-6 md:px-8 md:py-8">
-      <div className="mx-auto max-w-[1440px]">
+      <div>
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">设置</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">Embedding 模型中心</h1>
-            <p className="text-muted-foreground mt-2 max-w-3xl text-sm leading-6 md:text-base">
+            <p className="text-muted-foreground mt-2 text-sm leading-6 md:text-base">
               这里维护全局 Embedding
               模型配置，可创建多个。具体知识库只在知识库页选择“使用哪一个模型”。
             </p>
@@ -490,7 +490,7 @@ function EmptyBlock({
   return (
     <Surface className="border-dashed px-4 py-8 text-center" variant="muted" radius="lg">
       <p className="font-medium">{title}</p>
-      <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-6">{description}</p>
+      <p className="text-muted-foreground mt-2 text-sm leading-6">{description}</p>
       {action}
     </Surface>
   );
