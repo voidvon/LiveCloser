@@ -4,51 +4,53 @@ from livekit.agents import stt, tts
 
 from livekit_sales_agent.adapters.doubao_stt import DoubaoSTT, DoubaoSttConfig
 from livekit_sales_agent.adapters.doubao_tts import DoubaoTTS, DoubaoTtsConfig
-from livekit_sales_agent.config import Settings
+from livekit_sales_agent.config import SttModelSettings, TtsModelSettings
 
 
-def build_stt(settings: Settings) -> stt.STT | None:
-    if not settings.stt_descriptor:
+def build_stt(profile: SttModelSettings | None) -> stt.STT | None:
+    if profile is None:
         return None
 
-    if settings.uses_doubao_stt:
+    provider = profile.provider.strip().lower()
+    if provider == "doubao":
         return DoubaoSTT(
             DoubaoSttConfig(
-                api_key=settings.doubao_api_key,
-                resource_id=settings.doubao_stt_resource_id,
-                app_id=settings.doubao_app_id,
-                access_token=settings.doubao_access_token,
-                cluster=settings.doubao_stt_cluster,
-                ws_url=settings.doubao_stt_ws_url,
-                uid=settings.doubao_uid,
-                language=settings.doubao_stt_language,
+                api_key=profile.api_key or None,
+                resource_id=profile.resource_id or None,
+                app_id=profile.app_id or None,
+                access_token=profile.access_token or None,
+                cluster=profile.cluster or None,
+                ws_url=profile.ws_url,
+                uid=profile.uid,
+                language=profile.language,
             )
         )
 
-    raise ValueError(f"Unsupported STT_DESCRIPTOR: {settings.stt_descriptor}")
+    raise ValueError(f"Unsupported STT provider: {profile.provider}")
 
 
-def build_tts(settings: Settings) -> tts.TTS | None:
-    if not settings.tts_descriptor:
+def build_tts(profile: TtsModelSettings | None) -> tts.TTS | None:
+    if profile is None:
         return None
 
-    if settings.uses_doubao_tts:
+    provider = profile.provider.strip().lower()
+    if provider == "doubao":
         return DoubaoTTS(
             DoubaoTtsConfig(
-                api_key=settings.doubao_api_key,
-                resource_id=settings.doubao_tts_resource_id,
-                app_id=settings.doubao_app_id,
-                access_token=settings.doubao_access_token,
-                cluster=settings.doubao_tts_cluster,
-                voice_type=settings.doubao_tts_voice_type or "",
-                http_url=settings.doubao_tts_http_url,
-                uid=settings.doubao_uid,
-                encoding=settings.doubao_tts_encoding,
-                sample_rate=settings.doubao_tts_sample_rate,
-                speed_ratio=settings.doubao_tts_speed_ratio,
-                volume_ratio=settings.doubao_tts_volume_ratio,
-                pitch_ratio=settings.doubao_tts_pitch_ratio,
+                api_key=profile.api_key or None,
+                resource_id=profile.resource_id or None,
+                app_id=profile.app_id or None,
+                access_token=profile.access_token or None,
+                cluster=profile.cluster or None,
+                voice_type=profile.voice_type,
+                http_url=profile.http_url,
+                uid=profile.uid,
+                encoding=profile.encoding,
+                sample_rate=profile.sample_rate,
+                speed_ratio=profile.speed_ratio,
+                volume_ratio=profile.volume_ratio,
+                pitch_ratio=profile.pitch_ratio,
             )
         )
 
-    raise ValueError(f"Unsupported TTS_DESCRIPTOR: {settings.tts_descriptor}")
+    raise ValueError(f"Unsupported TTS provider: {profile.provider}")

@@ -55,7 +55,7 @@ cp .env.example .env
 - `LIVEKIT_API_KEY`
 - `LIVEKIT_API_SECRET`
 
-对话模型改为在设置页写入数据库，不再从后端 `.env` 读取。
+对话、STT、TTS 模型都改为在设置页写入数据库，不再从后端 `.env` 读取。
 
 前端 `.env.local`：
 
@@ -71,14 +71,7 @@ cp frontend/.env.example frontend/.env.local
 - `DISPATCH_AGENT_NAME` 或让前端保持默认派发逻辑
 - `KB_API_URL` 默认可保留 `http://127.0.0.1:8001`
 
-如果只验证文字模式，后端可以先不填语音相关变量；如果要用豆包语音，再补齐：
-
-- `STT_DESCRIPTOR=doubao`
-- `TTS_DESCRIPTOR=doubao`
-- `DOUBAO_API_KEY`
-- `DOUBAO_STT_RESOURCE_ID`
-- `DOUBAO_TTS_RESOURCE_ID`
-- `DOUBAO_TTS_VOICE_TYPE`
+如果只验证文字模式，不需要额外配置模型；如果要启用对话或语音，先启动前后端，再去 `/settings` 添加默认模型。
 
 ## 开发启动
 
@@ -211,4 +204,4 @@ Cannot connect to host 127.0.0.1:7880
 1. 先跑 `./scripts/dev.sh console`，确认 LLM 和知识库正常
 2. 再确认 `LIVEKIT_URL` 对应的服务可用
 3. 再跑 `./scripts/dev.sh`
-4. 最后再接入 `doubao` 的 STT / TTS
+4. 最后再去 `/settings` 配置需要启用的 STT / TTS

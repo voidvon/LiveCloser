@@ -22,7 +22,12 @@ from livekit.agents import (
 from livekit.plugins import openai, silero
 
 from livekit_sales_agent.conversation import ConversationService
-from livekit_sales_agent.config import Settings, load_chat_model_settings
+from livekit_sales_agent.config import (
+    Settings,
+    load_chat_model_settings,
+    load_stt_model_settings,
+    load_tts_model_settings,
+)
 from livekit_sales_agent.knowledge.db import ensure_database
 from livekit_sales_agent.knowledge.retrieval import RetrievalService
 from livekit_sales_agent.prompts import build_instructions
@@ -61,13 +66,14 @@ server.setup_fnc = prewarm
 
 
 class SalesAgent(Agent):
-    def __init__(self, config: Settings, metadata: SessionMetadata):
+    def __init__(self, config: Settings, metadata: SessionMetadata, *, has_tts: bool):
         self._config = config
         self._metadata = metadata
+        self._has_tts = has_tts
         super().__init__(instructions=build_instructions(config))
 
     async def on_enter(self) -> None:
-        if self._metadata.is_text_mode or not self._config.tts_descriptor:
+        if self._metadata.is_text_mode or not self._has_tts:
             return
 
         self.session.say(
@@ -205,11 +211,14 @@ class SalesAgent(Agent):
         await self.update_chat_ctx(history)
 
 
-def build_session(proc: JobProcess, metadata: SessionMetadata) -> AgentSession:
+def build_session(proc: JobProcess, metadata: SessionMetadata) -> tuple[AgentSession, bool, bool]:
     settings.validate()
+    db_path = settings.kb_data_dir / "app.db"
     chat_model = load_chat_model_settings(settings.kb_data_dir / "app.db")
-    stt_impl = None if metadata.is_text_mode else build_stt(settings)
-    tts_impl = None if metadata.is_text_mode else build_tts(settings)
+    stt_profile = None if metadata.is_text_mode else load_stt_model_settings(db_path)
+    tts_profile = None if metadata.is_text_mode else load_tts_model_settings(db_path)
+    stt_impl = build_stt(stt_profile)
+    tts_impl = build_tts(tts_profile)
     session_kwargs: dict[str, Any] = {
         "vad": proc.userdata["vad"],
         "llm": openai.LLM(
@@ -223,7 +232,7 @@ def build_session(proc: JobProcess, metadata: SessionMetadata) -> AgentSession:
         session_kwargs["stt"] = stt_impl
     if tts_impl is not None:
         session_kwargs["tts"] = tts_impl
-    return AgentSession(**session_kwargs)
+    return AgentSession(**session_kwargs), stt_impl is not None, tts_impl is not None
 
 
 async def handle_text_input(
@@ -322,8 +331,8 @@ async def entrypoint(ctx: JobContext) -> None:
             "job_metadata": job_metadata,
         },
     )
-    session = build_session(ctx.proc, metadata)
-    agent = SalesAgent(settings, metadata)
+    session, has_stt, has_tts = build_session(ctx.proc, metadata)
+    agent = SalesAgent(settings, metadata, has_tts=has_tts)
     await agent.restore_history()
 
     @session.on("conversation_item_added")
@@ -350,10 +359,8 @@ async def entrypoint(ctx: JobContext) -> None:
         text_input=room_io.TextInputOptions(
             text_input_cb=lambda sess, ev: handle_text_input(sess, ev, agent)
         ),
-        audio_input=False
-        if metadata.is_text_mode or not settings.stt_descriptor
-        else room_io.AudioInputOptions(),
-        audio_output=False if metadata.is_text_mode or not settings.tts_descriptor else True,
+        audio_input=False if metadata.is_text_mode or not has_stt else room_io.AudioInputOptions(),
+        audio_output=False if metadata.is_text_mode or not has_tts else True,
         text_output=room_io.TextOutputOptions(
             sync_transcription=False,
         ),

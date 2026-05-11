@@ -78,6 +78,41 @@ class ChatModelProfilePayload(BaseModel):
     is_default: bool = False
 
 
+class SttModelProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = "doubao"
+    auth_mode: str = "api_key"
+    api_key: str = ""
+    app_id: str = ""
+    access_token: str = ""
+    uid: str = "livekit-sales-user"
+    resource_id: str = ""
+    cluster: str = ""
+    ws_url: str = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+    language: str = "zh-CN"
+    is_default: bool = False
+
+
+class TtsModelProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = "doubao"
+    auth_mode: str = "api_key"
+    api_key: str = ""
+    app_id: str = ""
+    access_token: str = ""
+    uid: str = "livekit-sales-user"
+    resource_id: str = ""
+    cluster: str = ""
+    http_url: str = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+    voice_type: str = ""
+    encoding: str = "mp3"
+    sample_rate: int = 24000
+    speed_ratio: float = 1.0
+    volume_ratio: float = 1.0
+    pitch_ratio: float = 1.0
+    is_default: bool = False
+
+
 class ConversationPayload(BaseModel):
     title: str = "新会话"
     knowledge_base_id: Optional[str] = None
@@ -110,6 +145,16 @@ def list_chat_model_profiles():
     return service.list_chat_model_profiles()
 
 
+@app.get("/stt-model-profiles")
+def list_stt_model_profiles():
+    return service.list_stt_model_profiles()
+
+
+@app.get("/tts-model-profiles")
+def list_tts_model_profiles():
+    return service.list_tts_model_profiles()
+
+
 @app.post("/chat-model-profiles")
 def create_chat_model_profile(payload: ChatModelProfilePayload):
     return service.create_chat_model_profile(**payload.model_dump())
@@ -136,6 +181,64 @@ def delete_chat_model_profile(profile_id: str):
     deleted = service.delete_chat_model_profile(profile_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat model profile not found")
+    return {"ok": True}
+
+
+@app.post("/stt-model-profiles")
+def create_stt_model_profile(payload: SttModelProfilePayload):
+    return service.create_stt_model_profile(**payload.model_dump())
+
+
+@app.patch("/stt-model-profiles/{profile_id}")
+def update_stt_model_profile(profile_id: str, payload: SttModelProfilePayload):
+    record = service.update_stt_model_profile(profile_id, **payload.model_dump())
+    if record is None:
+        raise HTTPException(status_code=404, detail="STT model profile not found")
+    return record
+
+
+@app.post("/stt-model-profiles/{profile_id}/default")
+def set_default_stt_model_profile(profile_id: str):
+    record = service.set_default_stt_model_profile(profile_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="STT model profile not found")
+    return record
+
+
+@app.delete("/stt-model-profiles/{profile_id}")
+def delete_stt_model_profile(profile_id: str):
+    deleted = service.delete_stt_model_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="STT model profile not found")
+    return {"ok": True}
+
+
+@app.post("/tts-model-profiles")
+def create_tts_model_profile(payload: TtsModelProfilePayload):
+    return service.create_tts_model_profile(**payload.model_dump())
+
+
+@app.patch("/tts-model-profiles/{profile_id}")
+def update_tts_model_profile(profile_id: str, payload: TtsModelProfilePayload):
+    record = service.update_tts_model_profile(profile_id, **payload.model_dump())
+    if record is None:
+        raise HTTPException(status_code=404, detail="TTS model profile not found")
+    return record
+
+
+@app.post("/tts-model-profiles/{profile_id}/default")
+def set_default_tts_model_profile(profile_id: str):
+    record = service.set_default_tts_model_profile(profile_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="TTS model profile not found")
+    return record
+
+
+@app.delete("/tts-model-profiles/{profile_id}")
+def delete_tts_model_profile(profile_id: str):
+    deleted = service.delete_tts_model_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="TTS model profile not found")
     return {"ok": True}
 
 

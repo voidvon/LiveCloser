@@ -81,6 +81,192 @@ class KnowledgeService:
             repo = KnowledgeBaseRepository(conn)
             return repo.delete_chat_model_profile(profile_id)
 
+    def list_stt_model_profiles(self):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.list_stt_model_profiles()
+
+    def create_stt_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        ws_url: str,
+        language: str,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.create_stt_model_profile(
+                name=name,
+                provider=provider,
+                auth_mode=auth_mode,
+                api_key=api_key,
+                app_id=app_id,
+                access_token=access_token,
+                uid=uid,
+                resource_id=resource_id,
+                cluster=cluster,
+                ws_url=ws_url,
+                language=language,
+                is_default=is_default,
+            )
+
+    def update_stt_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        ws_url: str,
+        language: str,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.update_stt_model_profile(
+                profile_id,
+                name=name,
+                provider=provider,
+                auth_mode=auth_mode,
+                api_key=api_key,
+                app_id=app_id,
+                access_token=access_token,
+                uid=uid,
+                resource_id=resource_id,
+                cluster=cluster,
+                ws_url=ws_url,
+                language=language,
+                is_default=is_default,
+            )
+
+    def set_default_stt_model_profile(self, profile_id: str):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.set_default_stt_model_profile(profile_id)
+
+    def delete_stt_model_profile(self, profile_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.delete_stt_model_profile(profile_id)
+
+    def list_tts_model_profiles(self):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.list_tts_model_profiles()
+
+    def create_tts_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        http_url: str,
+        voice_type: str,
+        encoding: str,
+        sample_rate: int,
+        speed_ratio: float,
+        volume_ratio: float,
+        pitch_ratio: float,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.create_tts_model_profile(
+                name=name,
+                provider=provider,
+                auth_mode=auth_mode,
+                api_key=api_key,
+                app_id=app_id,
+                access_token=access_token,
+                uid=uid,
+                resource_id=resource_id,
+                cluster=cluster,
+                http_url=http_url,
+                voice_type=voice_type,
+                encoding=encoding,
+                sample_rate=sample_rate,
+                speed_ratio=speed_ratio,
+                volume_ratio=volume_ratio,
+                pitch_ratio=pitch_ratio,
+                is_default=is_default,
+            )
+
+    def update_tts_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        http_url: str,
+        voice_type: str,
+        encoding: str,
+        sample_rate: int,
+        speed_ratio: float,
+        volume_ratio: float,
+        pitch_ratio: float,
+        is_default: bool,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.update_tts_model_profile(
+                profile_id,
+                name=name,
+                provider=provider,
+                auth_mode=auth_mode,
+                api_key=api_key,
+                app_id=app_id,
+                access_token=access_token,
+                uid=uid,
+                resource_id=resource_id,
+                cluster=cluster,
+                http_url=http_url,
+                voice_type=voice_type,
+                encoding=encoding,
+                sample_rate=sample_rate,
+                speed_ratio=speed_ratio,
+                volume_ratio=volume_ratio,
+                pitch_ratio=pitch_ratio,
+                is_default=is_default,
+            )
+
+    def set_default_tts_model_profile(self, profile_id: str):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.set_default_tts_model_profile(profile_id)
+
+    def delete_tts_model_profile(self, profile_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.delete_tts_model_profile(profile_id)
+
     def list_embedding_profiles(self):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)

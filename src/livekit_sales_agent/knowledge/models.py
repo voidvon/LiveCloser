@@ -47,6 +47,49 @@ class ChatModelProfileRecord:
 
 
 @dataclass
+class SttModelProfileRecord:
+    id: str
+    name: str
+    provider: str
+    auth_mode: str
+    api_key: str
+    app_id: str
+    access_token: str
+    uid: str
+    resource_id: str
+    cluster: str
+    ws_url: str
+    language: str
+    is_default: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class TtsModelProfileRecord:
+    id: str
+    name: str
+    provider: str
+    auth_mode: str
+    api_key: str
+    app_id: str
+    access_token: str
+    uid: str
+    resource_id: str
+    cluster: str
+    http_url: str
+    voice_type: str
+    encoding: str
+    sample_rate: int
+    speed_ratio: float
+    volume_ratio: float
+    pitch_ratio: float
+    is_default: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass
 class CategoryRecord:
     id: str
     kb_id: str

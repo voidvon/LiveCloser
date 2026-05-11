@@ -13,6 +13,8 @@ from .models import (
     FileRecord,
     JobRecord,
     KnowledgeBaseRecord,
+    SttModelProfileRecord,
+    TtsModelProfileRecord,
 )
 
 
@@ -46,6 +48,14 @@ def _row_to_job(row: sqlite3.Row) -> JobRecord:
 
 def _row_to_chunk(row: sqlite3.Row) -> ChunkRecord:
     return ChunkRecord(**dict(row))
+
+
+def _row_to_stt_model_profile(row: sqlite3.Row) -> SttModelProfileRecord:
+    return SttModelProfileRecord(**dict(row))
+
+
+def _row_to_tts_model_profile(row: sqlite3.Row) -> TtsModelProfileRecord:
+    return TtsModelProfileRecord(**dict(row))
 
 
 class KnowledgeBaseRepository:
@@ -183,6 +193,374 @@ class KnowledgeBaseRepository:
             if replacement is not None:
                 self._conn.execute(
                     "UPDATE chat_model_profiles SET is_default = 1 WHERE id = ?",
+                    (replacement["id"],),
+                )
+
+        self._conn.commit()
+        return True
+
+    def list_stt_model_profiles(self) -> list[SttModelProfileRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM stt_model_profiles
+            ORDER BY is_default DESC, updated_at DESC, created_at DESC
+            """
+        ).fetchall()
+        return [_row_to_stt_model_profile(row) for row in rows]
+
+    def get_stt_model_profile(self, profile_id: str) -> Optional[SttModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM stt_model_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        return _row_to_stt_model_profile(row) if row else None
+
+    def get_default_stt_model_profile(self) -> Optional[SttModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM stt_model_profiles WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        return _row_to_stt_model_profile(row) if row else None
+
+    def create_stt_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        ws_url: str,
+        language: str,
+        is_default: bool,
+    ) -> SttModelProfileRecord:
+        record_id = str(uuid4())
+        now = utc_now()
+        should_default = is_default or self.get_default_stt_model_profile() is None
+        if should_default:
+            self._conn.execute("UPDATE stt_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            INSERT INTO stt_model_profiles (
+                id, name, provider, auth_mode, api_key, app_id, access_token, uid,
+                resource_id, cluster, ws_url, language, is_default, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                name,
+                provider,
+                auth_mode,
+                api_key,
+                app_id,
+                access_token,
+                uid,
+                resource_id,
+                cluster,
+                ws_url,
+                language,
+                1 if should_default else 0,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        record = self.get_stt_model_profile(record_id)
+        assert record is not None
+        return record
+
+    def update_stt_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        ws_url: str,
+        language: str,
+        is_default: bool,
+    ) -> Optional[SttModelProfileRecord]:
+        existing = self.get_stt_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        should_default = (
+            bool(existing.is_default)
+            or is_default
+            or self.get_default_stt_model_profile() is None
+        )
+        if is_default:
+            self._conn.execute("UPDATE stt_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            UPDATE stt_model_profiles
+            SET name = ?, provider = ?, auth_mode = ?, api_key = ?, app_id = ?,
+                access_token = ?, uid = ?, resource_id = ?, cluster = ?, ws_url = ?,
+                language = ?, is_default = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                name,
+                provider,
+                auth_mode,
+                api_key,
+                app_id,
+                access_token,
+                uid,
+                resource_id,
+                cluster,
+                ws_url,
+                language,
+                1 if should_default else 0,
+                now,
+                profile_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_stt_model_profile(profile_id)
+
+    def set_default_stt_model_profile(self, profile_id: str) -> Optional[SttModelProfileRecord]:
+        existing = self.get_stt_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        self._conn.execute("UPDATE stt_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            "UPDATE stt_model_profiles SET is_default = 1, updated_at = ? WHERE id = ?",
+            (now, profile_id),
+        )
+        self._conn.commit()
+        return self.get_stt_model_profile(profile_id)
+
+    def delete_stt_model_profile(self, profile_id: str) -> bool:
+        existing = self.get_stt_model_profile(profile_id)
+        if existing is None:
+            return False
+
+        cursor = self._conn.execute("DELETE FROM stt_model_profiles WHERE id = ?", (profile_id,))
+        if cursor.rowcount <= 0:
+            self._conn.commit()
+            return False
+
+        if existing.is_default:
+            replacement = self._conn.execute(
+                """
+                SELECT id
+                FROM stt_model_profiles
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if replacement is not None:
+                self._conn.execute(
+                    "UPDATE stt_model_profiles SET is_default = 1 WHERE id = ?",
+                    (replacement["id"],),
+                )
+
+        self._conn.commit()
+        return True
+
+    def list_tts_model_profiles(self) -> list[TtsModelProfileRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM tts_model_profiles
+            ORDER BY is_default DESC, updated_at DESC, created_at DESC
+            """
+        ).fetchall()
+        return [_row_to_tts_model_profile(row) for row in rows]
+
+    def get_tts_model_profile(self, profile_id: str) -> Optional[TtsModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM tts_model_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        return _row_to_tts_model_profile(row) if row else None
+
+    def get_default_tts_model_profile(self) -> Optional[TtsModelProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM tts_model_profiles WHERE is_default = 1 LIMIT 1"
+        ).fetchone()
+        return _row_to_tts_model_profile(row) if row else None
+
+    def create_tts_model_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        http_url: str,
+        voice_type: str,
+        encoding: str,
+        sample_rate: int,
+        speed_ratio: float,
+        volume_ratio: float,
+        pitch_ratio: float,
+        is_default: bool,
+    ) -> TtsModelProfileRecord:
+        record_id = str(uuid4())
+        now = utc_now()
+        should_default = is_default or self.get_default_tts_model_profile() is None
+        if should_default:
+            self._conn.execute("UPDATE tts_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            INSERT INTO tts_model_profiles (
+                id, name, provider, auth_mode, api_key, app_id, access_token, uid,
+                resource_id, cluster, http_url, voice_type, encoding, sample_rate,
+                speed_ratio, volume_ratio, pitch_ratio, is_default, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                name,
+                provider,
+                auth_mode,
+                api_key,
+                app_id,
+                access_token,
+                uid,
+                resource_id,
+                cluster,
+                http_url,
+                voice_type,
+                encoding,
+                sample_rate,
+                speed_ratio,
+                volume_ratio,
+                pitch_ratio,
+                1 if should_default else 0,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+        record = self.get_tts_model_profile(record_id)
+        assert record is not None
+        return record
+
+    def update_tts_model_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        auth_mode: str,
+        api_key: str,
+        app_id: str,
+        access_token: str,
+        uid: str,
+        resource_id: str,
+        cluster: str,
+        http_url: str,
+        voice_type: str,
+        encoding: str,
+        sample_rate: int,
+        speed_ratio: float,
+        volume_ratio: float,
+        pitch_ratio: float,
+        is_default: bool,
+    ) -> Optional[TtsModelProfileRecord]:
+        existing = self.get_tts_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        should_default = (
+            bool(existing.is_default)
+            or is_default
+            or self.get_default_tts_model_profile() is None
+        )
+        if is_default:
+            self._conn.execute("UPDATE tts_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            UPDATE tts_model_profiles
+            SET name = ?, provider = ?, auth_mode = ?, api_key = ?, app_id = ?,
+                access_token = ?, uid = ?, resource_id = ?, cluster = ?, http_url = ?,
+                voice_type = ?, encoding = ?, sample_rate = ?, speed_ratio = ?,
+                volume_ratio = ?, pitch_ratio = ?, is_default = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                name,
+                provider,
+                auth_mode,
+                api_key,
+                app_id,
+                access_token,
+                uid,
+                resource_id,
+                cluster,
+                http_url,
+                voice_type,
+                encoding,
+                sample_rate,
+                speed_ratio,
+                volume_ratio,
+                pitch_ratio,
+                1 if should_default else 0,
+                now,
+                profile_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_tts_model_profile(profile_id)
+
+    def set_default_tts_model_profile(self, profile_id: str) -> Optional[TtsModelProfileRecord]:
+        existing = self.get_tts_model_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        self._conn.execute("UPDATE tts_model_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            "UPDATE tts_model_profiles SET is_default = 1, updated_at = ? WHERE id = ?",
+            (now, profile_id),
+        )
+        self._conn.commit()
+        return self.get_tts_model_profile(profile_id)
+
+    def delete_tts_model_profile(self, profile_id: str) -> bool:
+        existing = self.get_tts_model_profile(profile_id)
+        if existing is None:
+            return False
+
+        cursor = self._conn.execute("DELETE FROM tts_model_profiles WHERE id = ?", (profile_id,))
+        if cursor.rowcount <= 0:
+            self._conn.commit()
+            return False
+
+        if existing.is_default:
+            replacement = self._conn.execute(
+                """
+                SELECT id
+                FROM tts_model_profiles
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if replacement is not None:
+                self._conn.execute(
+                    "UPDATE tts_model_profiles SET is_default = 1 WHERE id = ?",
                     (replacement["id"],),
                 )
 

@@ -27,6 +27,49 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS stt_model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'doubao',
+        auth_mode TEXT NOT NULL DEFAULT 'api_key',
+        api_key TEXT NOT NULL DEFAULT '',
+        app_id TEXT NOT NULL DEFAULT '',
+        access_token TEXT NOT NULL DEFAULT '',
+        uid TEXT NOT NULL DEFAULT 'livekit-sales-user',
+        resource_id TEXT NOT NULL DEFAULT '',
+        cluster TEXT NOT NULL DEFAULT '',
+        ws_url TEXT NOT NULL DEFAULT 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
+        language TEXT NOT NULL DEFAULT 'zh-CN',
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tts_model_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'doubao',
+        auth_mode TEXT NOT NULL DEFAULT 'api_key',
+        api_key TEXT NOT NULL DEFAULT '',
+        app_id TEXT NOT NULL DEFAULT '',
+        access_token TEXT NOT NULL DEFAULT '',
+        uid TEXT NOT NULL DEFAULT 'livekit-sales-user',
+        resource_id TEXT NOT NULL DEFAULT '',
+        cluster TEXT NOT NULL DEFAULT '',
+        http_url TEXT NOT NULL DEFAULT 'https://openspeech.bytedance.com/api/v3/tts/unidirectional',
+        voice_type TEXT NOT NULL DEFAULT '',
+        encoding TEXT NOT NULL DEFAULT 'mp3',
+        sample_rate INTEGER NOT NULL DEFAULT 24000,
+        speed_ratio REAL NOT NULL DEFAULT 1.0,
+        volume_ratio REAL NOT NULL DEFAULT 1.0,
+        pitch_ratio REAL NOT NULL DEFAULT 1.0,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS knowledge_bases (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -144,6 +187,10 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_chat_model_profiles_updated_at ON chat_model_profiles(updated_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_model_profiles_single_default ON chat_model_profiles(is_default) WHERE is_default = 1",
+    "CREATE INDEX IF NOT EXISTS idx_stt_model_profiles_updated_at ON stt_model_profiles(updated_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_stt_model_profiles_single_default ON stt_model_profiles(is_default) WHERE is_default = 1",
+    "CREATE INDEX IF NOT EXISTS idx_tts_model_profiles_updated_at ON tts_model_profiles(updated_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tts_model_profiles_single_default ON tts_model_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_kb_categories_kb_id ON kb_categories(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_embedding_profiles_updated_at ON embedding_profiles(updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON kb_files(kb_id)",
