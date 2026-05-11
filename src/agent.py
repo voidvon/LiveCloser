@@ -23,8 +23,9 @@ from livekit.plugins import openai, silero
 
 from livekit_sales_agent.conversation import ConversationService
 from livekit_sales_agent.config import (
+    AgentProfileSettings,
     Settings,
-    load_chat_model_settings,
+    load_agent_profile_settings,
     load_stt_model_settings,
     load_tts_model_settings,
 )
@@ -51,6 +52,7 @@ logger = logging.getLogger("livekit_sales_agent.agent")
 class SessionMetadata:
     session_mode: str = "voice"
     knowledge_base_id: Optional[str] = None
+    agent_profile_id: Optional[str] = None
     conversation_id: Optional[str] = None
 
     @property
@@ -66,11 +68,26 @@ server.setup_fnc = prewarm
 
 
 class SalesAgent(Agent):
-    def __init__(self, config: Settings, metadata: SessionMetadata, *, has_tts: bool):
+    def __init__(
+        self,
+        config: Settings,
+        metadata: SessionMetadata,
+        agent_profile: AgentProfileSettings,
+        *,
+        has_tts: bool,
+    ):
         self._config = config
         self._metadata = metadata
+        self._agent_profile = agent_profile
         self._has_tts = has_tts
-        super().__init__(instructions=build_instructions(config))
+        super().__init__(
+            instructions=build_instructions(
+                config,
+                system_prompt=agent_profile.system_prompt,
+                fallback_prompt=agent_profile.fallback_prompt,
+                retrieval_top_k=agent_profile.retrieval_top_k,
+            )
+        )
 
     async def on_enter(self) -> None:
         if self._metadata.is_text_mode or not self._has_tts:
@@ -102,13 +119,33 @@ class SalesAgent(Agent):
         del context
         return self._search_knowledge_base(query)
 
+    def _resolve_search_kb_ids(self) -> list[str]:
+        selected_kb_id = self._metadata.knowledge_base_id
+        allowed_kb_ids = self._agent_profile.knowledge_base_ids
+        if selected_kb_id:
+            if not allowed_kb_ids or selected_kb_id in allowed_kb_ids:
+                return [selected_kb_id]
+            return allowed_kb_ids
+        return allowed_kb_ids
+
     def _search_knowledge_base(self, query: str) -> str:
-        kb_id = self._metadata.knowledge_base_id
-        if not kb_id:
+        kb_ids = self._resolve_search_kb_ids()
+        if not kb_ids:
             return "当前会话没有绑定知识库。"
 
         try:
-            results = retrieval_service.search(kb_id=kb_id, query=query)
+            if len(kb_ids) == 1:
+                results = retrieval_service.search(
+                    kb_id=kb_ids[0],
+                    query=query,
+                    top_k=self._agent_profile.retrieval_top_k,
+                )
+            else:
+                results = retrieval_service.search_many(
+                    kb_ids=kb_ids,
+                    query=query,
+                    top_k=self._agent_profile.retrieval_top_k,
+                )
         except Exception as exc:
             return f"知识库检索失败：{exc}"
 
@@ -132,24 +169,35 @@ class SalesAgent(Agent):
         return turn_ctx
 
     def _inject_retrieval_context(self, turn_ctx: ChatContext, *, query: str) -> None:
-        kb_id = self._metadata.knowledge_base_id
+        kb_ids = self._resolve_search_kb_ids()
         query = query.strip()
-        if not kb_id or not query:
+        if not kb_ids or not query:
             return
 
         try:
-            results = retrieval_service.search(kb_id=kb_id, query=query)
+            if len(kb_ids) == 1:
+                results = retrieval_service.search(
+                    kb_id=kb_ids[0],
+                    query=query,
+                    top_k=self._agent_profile.retrieval_top_k,
+                )
+            else:
+                results = retrieval_service.search_many(
+                    kb_ids=kb_ids,
+                    query=query,
+                    top_k=self._agent_profile.retrieval_top_k,
+                )
         except Exception as exc:
             logger.exception(
                 "knowledge retrieval failed",
-                extra={"kb_id": kb_id, "query": query},
+                extra={"kb_ids": kb_ids, "query": query},
             )
             turn_ctx.add_message(
-                role="developer",
+                role="system",
                 content=(
                     "当前会话已绑定知识库，但本回合检索失败。"
                     f"错误：{exc}。"
-                    "不要编造知识库内容，直接说明当前无法从知识库读取到相关资料。"
+                    f"请严格遵循以下兜底提示：{self._agent_profile.fallback_prompt or '不要编造知识库内容，直接说明当前无法从知识库读取到相关资料。'}"
                 ),
             )
             return
@@ -157,7 +205,7 @@ class SalesAgent(Agent):
         logger.info(
             "knowledge retrieval completed",
             extra={
-                "kb_id": kb_id,
+                "kb_ids": kb_ids,
                 "query": query,
                 "result_count": len(results),
             },
@@ -165,16 +213,16 @@ class SalesAgent(Agent):
 
         if not results:
             turn_ctx.add_message(
-                role="developer",
+                role="system",
                 content=(
                     "当前会话已绑定知识库，但本回合没有检索到相关片段。"
-                    "不要猜测答案，直接说明当前知识库没有足够信息。"
+                    f"请严格遵循以下兜底提示：{self._agent_profile.fallback_prompt or '不要猜测答案，直接说明当前知识库没有足够信息。'}"
                 ),
             )
             return
 
         turn_ctx.add_message(
-            role="developer",
+            role="system",
             content=self._build_rag_context(query=query, results=results),
         )
 
@@ -211,21 +259,30 @@ class SalesAgent(Agent):
         await self.update_chat_ctx(history)
 
 
-def build_session(proc: JobProcess, metadata: SessionMetadata) -> tuple[AgentSession, bool, bool]:
+def build_session(
+    proc: JobProcess,
+    metadata: SessionMetadata,
+    agent_profile: AgentProfileSettings,
+) -> tuple[AgentSession, bool, bool]:
     settings.validate()
     db_path = settings.kb_data_dir / "app.db"
-    chat_model = load_chat_model_settings(settings.kb_data_dir / "app.db")
     stt_profile = None if metadata.is_text_mode else load_stt_model_settings(db_path)
     tts_profile = None if metadata.is_text_mode else load_tts_model_settings(db_path)
     stt_impl = build_stt(stt_profile)
     tts_impl = build_tts(tts_profile)
+    llm_kwargs: dict[str, Any] = {
+        "model": agent_profile.chat_model.model,
+        "base_url": agent_profile.chat_model.base_url,
+        "api_key": agent_profile.chat_model.api_key,
+    }
+    if agent_profile.chat_model.is_deepseek_v4:
+        # DeepSeek V4 defaults to thinking mode. Its OpenAI compatibility flow expects
+        # reasoning_content to be echoed back on the next turn, which the LiveKit OpenAI
+        # adapter does not preserve. Disable thinking for stable multi-turn chat.
+        llm_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     session_kwargs: dict[str, Any] = {
         "vad": proc.userdata["vad"],
-        "llm": openai.LLM(
-            model=chat_model.model,
-            base_url=chat_model.base_url,
-            api_key=chat_model.api_key,
-        ),
+        "llm": openai.LLM(**llm_kwargs),
         "turn_handling": {"turn_detection": "vad"},
     }
     if stt_impl is not None:
@@ -273,6 +330,7 @@ def parse_session_metadata(ctx: JobContext) -> SessionMetadata:
     return SessionMetadata(
         session_mode=str(payload.get("session_mode") or "voice"),
         knowledge_base_id=_optional_str(payload.get("knowledge_base_id")),
+        agent_profile_id=_optional_str(payload.get("agent_profile_id")),
         conversation_id=_optional_str(payload.get("conversation_id")),
     )
 
@@ -314,9 +372,16 @@ def _optional_str(value: object) -> Optional[str]:
 async def entrypoint(ctx: JobContext) -> None:
     raw_metadata = _extract_agent_metadata(ctx)
     metadata = parse_session_metadata(ctx)
+    resolved_agent_profile = load_agent_profile_settings(
+        settings.kb_data_dir / "app.db",
+        agent_profile_id=metadata.agent_profile_id,
+        default_retrieval_top_k=settings.kb_top_k,
+    )
+    metadata.agent_profile_id = resolved_agent_profile.profile_id
     ensured_conversation = conversation_service.ensure_conversation(
         metadata.conversation_id,
         knowledge_base_id=metadata.knowledge_base_id,
+        agent_profile_id=metadata.agent_profile_id,
         last_mode=metadata.session_mode,
     )
     metadata.conversation_id = ensured_conversation.id
@@ -326,13 +391,14 @@ async def entrypoint(ctx: JobContext) -> None:
         extra={
             "session_mode": metadata.session_mode,
             "knowledge_base_id": metadata.knowledge_base_id,
+            "agent_profile_id": metadata.agent_profile_id,
             "conversation_id": metadata.conversation_id,
             "raw_metadata": raw_metadata,
             "job_metadata": job_metadata,
         },
     )
-    session, has_stt, has_tts = build_session(ctx.proc, metadata)
-    agent = SalesAgent(settings, metadata, has_tts=has_tts)
+    session, has_stt, has_tts = build_session(ctx.proc, metadata, resolved_agent_profile)
+    agent = SalesAgent(settings, metadata, resolved_agent_profile, has_tts=has_tts)
     await agent.restore_history()
 
     @session.on("conversation_item_added")

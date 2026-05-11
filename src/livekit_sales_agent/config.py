@@ -52,6 +52,15 @@ class ChatModelSettings:
     base_url: str
     api_key: str
 
+    @property
+    def is_deepseek_v4(self) -> bool:
+        normalized_base_url = self.base_url.rstrip("/").lower()
+        normalized_model = self.model.strip().lower()
+        return "api.deepseek.com" in normalized_base_url and normalized_model in {
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        }
+
 
 @dataclass
 class SttModelSettings:
@@ -86,11 +95,26 @@ class TtsModelSettings:
     pitch_ratio: float
 
 
+@dataclass
+class AgentProfileSettings:
+    profile_id: Optional[str]
+    name: str
+    description: str
+    system_prompt: str
+    fallback_prompt: str
+    retrieval_top_k: int
+    knowledge_base_ids: list[str]
+    chat_model: ChatModelSettings
+
+
 def load_chat_model_settings(db_path: Path) -> ChatModelSettings:
     with connect(db_path) as conn:
         repo = KnowledgeBaseRepository(conn)
         record = repo.get_default_chat_model_profile()
+    return _chat_model_settings_from_record(record)
 
+
+def _chat_model_settings_from_record(record) -> ChatModelSettings:
     if record is None:
         raise ValueError("No default chat model configured in settings")
     if not record.model:
@@ -105,6 +129,50 @@ def load_chat_model_settings(db_path: Path) -> ChatModelSettings:
         base_url=record.base_url,
         api_key=record.api_key,
     )
+
+
+def load_agent_profile_settings(
+    db_path: Path,
+    *,
+    agent_profile_id: Optional[str],
+    default_retrieval_top_k: int,
+) -> AgentProfileSettings:
+    with connect(db_path) as conn:
+        repo = KnowledgeBaseRepository(conn)
+        profile = repo.get_agent_profile(agent_profile_id) if agent_profile_id else None
+        if profile is None:
+            profile = repo.get_default_agent_profile()
+
+        if profile is None:
+            return AgentProfileSettings(
+                profile_id=None,
+                name="系统默认智能体",
+                description="",
+                system_prompt="",
+                fallback_prompt="",
+                retrieval_top_k=default_retrieval_top_k,
+                knowledge_base_ids=[],
+                chat_model=_chat_model_settings_from_record(repo.get_default_chat_model_profile()),
+            )
+
+        model_record = (
+            repo.get_chat_model_profile(profile.chat_model_profile_id)
+            if profile.chat_model_profile_id
+            else repo.get_default_chat_model_profile()
+        )
+        if model_record is None:
+            raise ValueError("智能体绑定的对话模型不存在")
+
+        return AgentProfileSettings(
+            profile_id=profile.id,
+            name=profile.name,
+            description=profile.description,
+            system_prompt=profile.system_prompt,
+            fallback_prompt=profile.fallback_prompt,
+            retrieval_top_k=profile.retrieval_top_k,
+            knowledge_base_ids=list(profile.knowledge_base_ids or []),
+            chat_model=_chat_model_settings_from_record(model_record),
+        )
 
 
 def load_stt_model_settings(db_path: Path) -> Optional[SttModelSettings]:

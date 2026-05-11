@@ -13,7 +13,13 @@ class RetrievalService:
         self._db_path = db_path
         self._chroma_store = ChromaStore(root_dir=chroma_root)
 
-    def search(self, *, kb_id: str, query: str) -> list[dict[str, object]]:
+    def search(
+        self,
+        *,
+        kb_id: str,
+        query: str,
+        top_k: int | None = None,
+    ) -> list[dict[str, object]]:
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             kb_record = repo.get_knowledge_base(kb_id)
@@ -30,7 +36,7 @@ class RetrievalService:
             result = self._chroma_store.search(
                 kb_id=kb_id,
                 query_embedding=query_embedding,
-                top_k=kb_record.retrieval_top_k,
+                top_k=top_k or kb_record.retrieval_top_k,
             )
 
         documents = result.get("documents", [[]])
@@ -50,3 +56,21 @@ class RetrievalService:
                 }
             )
         return response
+
+    def search_many(
+        self,
+        *,
+        kb_ids: list[str],
+        query: str,
+        top_k: int,
+    ) -> list[dict[str, object]]:
+        merged: list[dict[str, object]] = []
+        for kb_id in kb_ids:
+            results = self.search(kb_id=kb_id, query=query, top_k=top_k)
+            for result in results:
+                metadata = dict(result.get("metadata") or {})
+                metadata.setdefault("kb_id", kb_id)
+                result["metadata"] = metadata
+                merged.append(result)
+        merged.sort(key=lambda item: float(item.get("distance") or 0))
+        return merged[:top_k]

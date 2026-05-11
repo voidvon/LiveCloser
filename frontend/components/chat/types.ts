@@ -2,6 +2,7 @@ export type ConversationRecord = {
   id: string;
   title: string;
   knowledge_base_id: string | null;
+  agent_profile_id: string | null;
   last_mode: 'text' | 'voice';
   created_at: string;
   updated_at: string;
@@ -21,4 +22,11 @@ export type ConversationMessageRecord = {
 export type KnowledgeBaseOption = {
   id: string;
   name: string;
+};
+
+export type AgentProfileOption = {
+  id: string;
+  name: string;
+  knowledge_base_ids: string[];
+  is_default?: number;
 };

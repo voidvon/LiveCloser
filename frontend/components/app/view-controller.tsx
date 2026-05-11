@@ -5,7 +5,11 @@ import { useTheme } from 'next-themes';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
 import { ChatWorkspace } from '@/components/chat/chat-workspace';
-import type { ConversationMessageRecord } from '@/components/chat/types';
+import type {
+  AgentProfileOption,
+  ConversationMessageRecord,
+  KnowledgeBaseOption,
+} from '@/components/chat/types';
 
 interface ViewControllerProps {
   appConfig: AppConfig;
@@ -13,6 +17,8 @@ interface ViewControllerProps {
   onSessionModeChange: (mode: 'text' | 'voice') => void;
   activeKnowledgeBaseId: string | null;
   onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
+  activeAgentProfileId: string | null;
+  onActiveAgentProfileIdChange: (agentProfileId: string | null) => void;
   activeConversationId: string | null;
   onActiveConversationIdChange: (conversationId: string | null) => void;
   persistedMessages: ConversationMessageRecord[];
@@ -20,6 +26,7 @@ interface ViewControllerProps {
   onPrepareSessionStart: (
     mode: 'text' | 'voice',
     kbId: string | null,
+    agentProfileId: string | null,
     conversationId: string | null
   ) => void;
 }
@@ -30,6 +37,8 @@ export function ViewController({
   onSessionModeChange,
   activeKnowledgeBaseId,
   onActiveKnowledgeBaseIdChange,
+  activeAgentProfileId,
+  onActiveAgentProfileIdChange,
   activeConversationId,
   onActiveConversationIdChange,
   persistedMessages,
@@ -38,33 +47,60 @@ export function ViewController({
 }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
-  const [knowledgeBases, setKnowledgeBases] = useState<Array<{ id: string; name: string }>>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseOption[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileOption[]>([]);
 
   useEffect(() => {
-    void fetch('/api/kb/knowledge-bases', { cache: 'no-store' })
-      .then(async (response) => {
+    void Promise.all([
+      fetch('/api/kb/knowledge-bases', { cache: 'no-store' }).then(async (response) => {
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        return response.json() as Promise<Array<{ id: string; name: string }>>;
-      })
-      .then((data) => {
-        setKnowledgeBases(data);
-        if (!activeKnowledgeBaseId && data[0]?.id) {
-          onActiveKnowledgeBaseIdChange(data[0].id);
+        return response.json() as Promise<KnowledgeBaseOption[]>;
+      }),
+      fetch('/api/kb/agent-profiles', { cache: 'no-store' }).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await response.text());
         }
+        return response.json() as Promise<AgentProfileOption[]>;
+      }),
+    ])
+      .then(([knowledgeBaseData, agentProfileData]) => {
+        setKnowledgeBases(knowledgeBaseData);
+        setAgentProfiles(agentProfileData);
       })
       .catch(() => {
         setKnowledgeBases([]);
+        setAgentProfiles([]);
       });
-  }, [activeKnowledgeBaseId, onActiveKnowledgeBaseIdChange]);
+  }, []);
+
+  useEffect(() => {
+    if (!activeKnowledgeBaseId && knowledgeBases[0]?.id) {
+      onActiveKnowledgeBaseIdChange(knowledgeBases[0].id);
+    }
+  }, [activeKnowledgeBaseId, knowledgeBases, onActiveKnowledgeBaseIdChange]);
+
+  useEffect(() => {
+    if (activeAgentProfileId) {
+      return;
+    }
+    const defaultAgent = agentProfiles.find((item) => item.is_default);
+    if (defaultAgent?.id) {
+      onActiveAgentProfileIdChange(defaultAgent.id);
+      return;
+    }
+    if (agentProfiles[0]?.id) {
+      onActiveAgentProfileIdChange(agentProfiles[0].id);
+    }
+  }, [activeAgentProfileId, agentProfiles, onActiveAgentProfileIdChange]);
 
   const handleStartTextChat = (conversationId: string | null) => {
     if (!appConfig.sessionStartEnabled) {
       return;
     }
 
-    onPrepareSessionStart('text', activeKnowledgeBaseId, conversationId);
+    onPrepareSessionStart('text', activeKnowledgeBaseId, activeAgentProfileId, conversationId);
     onSessionModeChange('text');
     void start({
       tracks: {
@@ -80,7 +116,7 @@ export function ViewController({
       return;
     }
 
-    onPrepareSessionStart('voice', activeKnowledgeBaseId, conversationId);
+    onPrepareSessionStart('voice', activeKnowledgeBaseId, activeAgentProfileId, conversationId);
     onSessionModeChange('voice');
     void start();
   };
@@ -89,11 +125,14 @@ export function ViewController({
     <section className="flex h-svh max-h-svh flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ChatWorkspace
+          agentProfiles={agentProfiles}
           onStartTextChat={handleStartTextChat}
           onStartVoiceChat={handleStartVoiceChat}
           knowledgeBases={knowledgeBases}
           activeKnowledgeBaseId={activeKnowledgeBaseId}
           onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
+          activeAgentProfileId={activeAgentProfileId}
+          onActiveAgentProfileIdChange={onActiveAgentProfileIdChange}
           activeConversationId={activeConversationId}
           onActiveConversationIdChange={onActiveConversationIdChange}
           persistedMessages={persistedMessages}

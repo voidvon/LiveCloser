@@ -27,6 +27,7 @@ class ConversationService:
         *,
         title: str = "新会话",
         knowledge_base_id: Optional[str] = None,
+        agent_profile_id: Optional[str] = None,
         last_mode: str = "text",
     ):
         with connect(self._db_path) as conn:
@@ -34,6 +35,7 @@ class ConversationService:
             return repo.create_conversation(
                 title=title,
                 knowledge_base_id=knowledge_base_id,
+                agent_profile_id=agent_profile_id,
                 last_mode=last_mode,
             )
 
@@ -48,6 +50,7 @@ class ConversationService:
         *,
         title: str | object = _UNSET,
         knowledge_base_id: Optional[str] | object = _UNSET,
+        agent_profile_id: Optional[str] | object = _UNSET,
         last_mode: str | object = _UNSET,
     ):
         with connect(self._db_path) as conn:
@@ -56,6 +59,7 @@ class ConversationService:
                 conversation_id,
                 title=title,
                 knowledge_base_id=knowledge_base_id,
+                agent_profile_id=agent_profile_id,
                 last_mode=last_mode,
             )
 
@@ -69,6 +73,7 @@ class ConversationService:
         conversation_id: Optional[str],
         *,
         knowledge_base_id: Optional[str],
+        agent_profile_id: Optional[str],
         last_mode: str,
     ):
         with connect(self._db_path) as conn:
@@ -76,16 +81,22 @@ class ConversationService:
             if conversation_id:
                 record = repo.get_conversation(conversation_id)
                 if record is not None:
-                    if record.knowledge_base_id != knowledge_base_id or record.last_mode != last_mode:
+                    if (
+                        record.knowledge_base_id != knowledge_base_id
+                        or record.agent_profile_id != agent_profile_id
+                        or record.last_mode != last_mode
+                    ):
                         record = repo.update_conversation(
                             conversation_id,
                             knowledge_base_id=knowledge_base_id,
+                            agent_profile_id=agent_profile_id,
                             last_mode=last_mode,
                         )
                     return record
             return repo.create_conversation(
                 title="新会话",
                 knowledge_base_id=knowledge_base_id,
+                agent_profile_id=agent_profile_id,
                 last_mode=last_mode,
             )
 
@@ -120,5 +131,6 @@ class ConversationService:
                 continue
             if message.role not in {"user", "assistant", "system", "developer"}:
                 continue
-            chat_ctx.add_message(role=message.role, content=message.content)
+            role = "system" if message.role == "developer" else message.role
+            chat_ctx.add_message(role=role, content=message.content)
         return chat_ctx

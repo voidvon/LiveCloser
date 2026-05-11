@@ -6,6 +6,7 @@ from typing import Optional
 from uuid import uuid4
 
 from .models import (
+    AgentProfileRecord,
     CategoryRecord,
     ChatModelProfileRecord,
     ChunkRecord,
@@ -32,6 +33,10 @@ def _row_to_embedding_profile(row: sqlite3.Row) -> EmbeddingProfileRecord:
 
 def _row_to_chat_model_profile(row: sqlite3.Row) -> ChatModelProfileRecord:
     return ChatModelProfileRecord(**dict(row))
+
+
+def _row_to_agent_profile(row: sqlite3.Row) -> AgentProfileRecord:
+    return AgentProfileRecord(**dict(row))
 
 
 def _row_to_category(row: sqlite3.Row) -> CategoryRecord:
@@ -193,6 +198,199 @@ class KnowledgeBaseRepository:
             if replacement is not None:
                 self._conn.execute(
                     "UPDATE chat_model_profiles SET is_default = 1 WHERE id = ?",
+                    (replacement["id"],),
+                )
+
+        self._conn.commit()
+        return True
+
+    def _hydrate_agent_profile_knowledge_bases(
+        self, records: list[AgentProfileRecord]
+    ) -> list[AgentProfileRecord]:
+        if not records:
+            return records
+
+        profile_ids = [record.id for record in records]
+        placeholders = ",".join("?" for _ in profile_ids)
+        rows = self._conn.execute(
+            f"""
+            SELECT agent_profile_id, kb_id
+            FROM agent_profile_kb_bindings
+            WHERE agent_profile_id IN ({placeholders})
+            ORDER BY rowid ASC
+            """,
+            profile_ids,
+        ).fetchall()
+        kb_ids_by_profile = {profile_id: [] for profile_id in profile_ids}
+        for row in rows:
+            kb_ids_by_profile[row["agent_profile_id"]].append(row["kb_id"])
+        for record in records:
+            record.knowledge_base_ids = kb_ids_by_profile.get(record.id, [])
+        return records
+
+    def list_agent_profiles(self) -> list[AgentProfileRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM agent_profiles
+            ORDER BY is_default DESC, updated_at DESC, created_at DESC
+            """
+        ).fetchall()
+        records = [_row_to_agent_profile(row) for row in rows]
+        return self._hydrate_agent_profile_knowledge_bases(records)
+
+    def get_agent_profile(self, profile_id: str) -> Optional[AgentProfileRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM agent_profiles WHERE id = ?",
+            (profile_id,),
+        ).fetchall()
+        records = [_row_to_agent_profile(row) for row in rows]
+        hydrated = self._hydrate_agent_profile_knowledge_bases(records)
+        return hydrated[0] if hydrated else None
+
+    def get_default_agent_profile(self) -> Optional[AgentProfileRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM agent_profiles WHERE is_default = 1 LIMIT 1"
+        ).fetchall()
+        records = [_row_to_agent_profile(row) for row in rows]
+        hydrated = self._hydrate_agent_profile_knowledge_bases(records)
+        return hydrated[0] if hydrated else None
+
+    def _replace_agent_profile_knowledge_bases(
+        self,
+        profile_id: str,
+        knowledge_base_ids: list[str],
+    ) -> None:
+        now = utc_now()
+        self._conn.execute(
+            "DELETE FROM agent_profile_kb_bindings WHERE agent_profile_id = ?",
+            (profile_id,),
+        )
+        for kb_id in knowledge_base_ids:
+            self._conn.execute(
+                """
+                INSERT INTO agent_profile_kb_bindings (
+                    id, agent_profile_id, kb_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (str(uuid4()), profile_id, kb_id, now, now),
+            )
+
+    def create_agent_profile(
+        self,
+        *,
+        name: str,
+        description: str,
+        system_prompt: str,
+        fallback_prompt: str,
+        chat_model_profile_id: Optional[str],
+        retrieval_top_k: int,
+        knowledge_base_ids: list[str],
+        is_default: bool,
+    ) -> AgentProfileRecord:
+        record_id = str(uuid4())
+        now = utc_now()
+        should_default = is_default or self.get_default_agent_profile() is None
+        if should_default:
+            self._conn.execute("UPDATE agent_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            INSERT INTO agent_profiles (
+                id, name, description, system_prompt, fallback_prompt,
+                chat_model_profile_id, retrieval_top_k, is_default, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record_id,
+                name,
+                description,
+                system_prompt,
+                fallback_prompt,
+                chat_model_profile_id,
+                retrieval_top_k,
+                1 if should_default else 0,
+                now,
+                now,
+            ),
+        )
+        self._replace_agent_profile_knowledge_bases(record_id, knowledge_base_ids)
+        self._conn.commit()
+        record = self.get_agent_profile(record_id)
+        assert record is not None
+        return record
+
+    def update_agent_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        description: str,
+        system_prompt: str,
+        fallback_prompt: str,
+        chat_model_profile_id: Optional[str],
+        retrieval_top_k: int,
+        knowledge_base_ids: list[str],
+        is_default: bool,
+    ) -> Optional[AgentProfileRecord]:
+        existing = self.get_agent_profile(profile_id)
+        if existing is None:
+            return None
+
+        now = utc_now()
+        should_default = (
+            bool(existing.is_default)
+            or is_default
+            or self.get_default_agent_profile() is None
+        )
+        if is_default:
+            self._conn.execute("UPDATE agent_profiles SET is_default = 0 WHERE is_default = 1")
+        self._conn.execute(
+            """
+            UPDATE agent_profiles
+            SET name = ?, description = ?, system_prompt = ?, fallback_prompt = ?,
+                chat_model_profile_id = ?, retrieval_top_k = ?, is_default = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                name,
+                description,
+                system_prompt,
+                fallback_prompt,
+                chat_model_profile_id,
+                retrieval_top_k,
+                1 if should_default else 0,
+                now,
+                profile_id,
+            ),
+        )
+        self._replace_agent_profile_knowledge_bases(profile_id, knowledge_base_ids)
+        self._conn.commit()
+        return self.get_agent_profile(profile_id)
+
+    def delete_agent_profile(self, profile_id: str) -> bool:
+        existing = self.get_agent_profile(profile_id)
+        if existing is None:
+            return False
+
+        cursor = self._conn.execute("DELETE FROM agent_profiles WHERE id = ?", (profile_id,))
+        if cursor.rowcount <= 0:
+            self._conn.commit()
+            return False
+
+        if existing.is_default:
+            replacement = self._conn.execute(
+                """
+                SELECT id
+                FROM agent_profiles
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if replacement is not None:
+                self._conn.execute(
+                    "UPDATE agent_profiles SET is_default = 1 WHERE id = ?",
                     (replacement["id"],),
                 )
 

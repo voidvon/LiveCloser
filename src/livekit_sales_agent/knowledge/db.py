@@ -7,6 +7,15 @@ from uuid import uuid4
 from .schema import SCHEMA_STATEMENTS
 
 
+def _is_index_statement(statement: str) -> bool:
+    normalized = statement.lstrip().upper()
+    return normalized.startswith("CREATE INDEX") or normalized.startswith("CREATE UNIQUE INDEX")
+
+
+BASE_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if not _is_index_statement(statement)]
+INDEX_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if _is_index_statement(statement)]
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -18,9 +27,11 @@ def connect(db_path: Path) -> sqlite3.Connection:
 def ensure_database(db_path: Path) -> None:
     conn = connect(db_path)
     try:
-        for statement in SCHEMA_STATEMENTS:
+        for statement in BASE_SCHEMA_STATEMENTS:
             conn.execute(statement)
         _run_migrations(conn)
+        for statement in INDEX_SCHEMA_STATEMENTS:
+            conn.execute(statement)
         conn.commit()
     finally:
         conn.close()
@@ -37,6 +48,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn,
         table_name="kb_chunks",
         column_name="category_id",
+        column_sql="TEXT",
+    )
+    _ensure_column(
+        conn,
+        table_name="chat_conversations",
+        column_name="agent_profile_id",
         column_sql="TEXT",
     )
     conn.execute(

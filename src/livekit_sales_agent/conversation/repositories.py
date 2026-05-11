@@ -51,6 +51,7 @@ class ConversationRepository:
         *,
         title: str,
         knowledge_base_id: Optional[str],
+        agent_profile_id: Optional[str],
         last_mode: str,
     ) -> ConversationRecord:
         record_id = str(uuid4())
@@ -58,11 +59,12 @@ class ConversationRepository:
         self._conn.execute(
             """
             INSERT INTO chat_conversations (
-                id, title, knowledge_base_id, last_mode, created_at, updated_at, last_message_at, last_message_preview
+                id, title, knowledge_base_id, agent_profile_id, last_mode,
+                created_at, updated_at, last_message_at, last_message_preview
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, '')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '')
             """,
-            (record_id, title, knowledge_base_id, last_mode, now, now, None),
+            (record_id, title, knowledge_base_id, agent_profile_id, last_mode, now, now, None),
         )
         self._conn.commit()
         record = self.get_conversation(record_id)
@@ -75,6 +77,7 @@ class ConversationRepository:
         *,
         title: str | object = _UNSET,
         knowledge_base_id: Optional[str] | object = _UNSET,
+        agent_profile_id: Optional[str] | object = _UNSET,
         last_mode: str | object = _UNSET,
     ) -> Optional[ConversationRecord]:
         current = self.get_conversation(conversation_id)
@@ -85,7 +88,7 @@ class ConversationRepository:
         self._conn.execute(
             """
             UPDATE chat_conversations
-            SET title = ?, knowledge_base_id = ?, last_mode = ?, updated_at = ?
+            SET title = ?, knowledge_base_id = ?, agent_profile_id = ?, last_mode = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -93,6 +96,7 @@ class ConversationRepository:
                 current.knowledge_base_id
                 if knowledge_base_id is _UNSET
                 else knowledge_base_id,
+                current.agent_profile_id if agent_profile_id is _UNSET else agent_profile_id,
                 current.last_mode if last_mode is _UNSET else last_mode,
                 now,
                 conversation_id,

@@ -47,6 +47,21 @@ class ChatModelProfileRecord:
 
 
 @dataclass
+class AgentProfileRecord:
+    id: str
+    name: str
+    description: str
+    system_prompt: str
+    fallback_prompt: str
+    chat_model_profile_id: Optional[str]
+    retrieval_top_k: int
+    is_default: int
+    created_at: str
+    updated_at: str
+    knowledge_base_ids: list[str] | None = None
+
+
+@dataclass
 class SttModelProfileRecord:
     id: str
     name: str

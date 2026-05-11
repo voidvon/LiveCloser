@@ -9,6 +9,7 @@ class ConversationRecord:
     id: str
     title: str
     knowledge_base_id: Optional[str]
+    agent_profile_id: Optional[str]
     last_mode: str
     created_at: str
     updated_at: str

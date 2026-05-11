@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,116 @@ class KnowledgeService:
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_chat_model_profiles()
+
+    def list_agent_profiles(self):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.list_agent_profiles()
+
+    @staticmethod
+    def _normalize_knowledge_base_ids(knowledge_base_ids: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for kb_id in knowledge_base_ids:
+            value = kb_id.strip()
+            if not value or value in seen:
+                continue
+            deduped.append(value)
+            seen.add(value)
+        return deduped
+
+    @staticmethod
+    def _validate_agent_profile_dependencies(
+        repo: KnowledgeBaseRepository,
+        *,
+        chat_model_profile_id: Optional[str],
+        knowledge_base_ids: list[str],
+        retrieval_top_k: int,
+    ) -> None:
+        if retrieval_top_k <= 0:
+            raise ValueError("向量召回数量必须大于 0")
+        if chat_model_profile_id and repo.get_chat_model_profile(chat_model_profile_id) is None:
+            raise ValueError("智能体绑定的对话模型不存在")
+        missing_kb_ids = [kb_id for kb_id in knowledge_base_ids if repo.get_knowledge_base(kb_id) is None]
+        if missing_kb_ids:
+            raise ValueError("智能体绑定的知识库不存在")
+
+    def create_agent_profile(
+        self,
+        *,
+        name: str,
+        description: str,
+        system_prompt: str,
+        fallback_prompt: str,
+        chat_model_profile_id: Optional[str],
+        retrieval_top_k: int,
+        knowledge_base_ids: list[str],
+        is_default: bool,
+    ):
+        normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            self._validate_agent_profile_dependencies(
+                repo,
+                chat_model_profile_id=chat_model_profile_id,
+                knowledge_base_ids=normalized_kb_ids,
+                retrieval_top_k=retrieval_top_k,
+            )
+            try:
+                return repo.create_agent_profile(
+                    name=name,
+                    description=description,
+                    system_prompt=system_prompt,
+                    fallback_prompt=fallback_prompt,
+                    chat_model_profile_id=chat_model_profile_id,
+                    retrieval_top_k=retrieval_top_k,
+                    knowledge_base_ids=normalized_kb_ids,
+                    is_default=is_default,
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("智能体名称不能重复") from exc
+
+    def update_agent_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        description: str,
+        system_prompt: str,
+        fallback_prompt: str,
+        chat_model_profile_id: Optional[str],
+        retrieval_top_k: int,
+        knowledge_base_ids: list[str],
+        is_default: bool,
+    ):
+        normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            self._validate_agent_profile_dependencies(
+                repo,
+                chat_model_profile_id=chat_model_profile_id,
+                knowledge_base_ids=normalized_kb_ids,
+                retrieval_top_k=retrieval_top_k,
+            )
+            try:
+                return repo.update_agent_profile(
+                    profile_id,
+                    name=name,
+                    description=description,
+                    system_prompt=system_prompt,
+                    fallback_prompt=fallback_prompt,
+                    chat_model_profile_id=chat_model_profile_id,
+                    retrieval_top_k=retrieval_top_k,
+                    knowledge_base_ids=normalized_kb_ids,
+                    is_default=is_default,
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("智能体名称不能重复") from exc
+
+    def delete_agent_profile(self, profile_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.delete_agent_profile(profile_id)
 
     def create_chat_model_profile(
         self,

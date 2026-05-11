@@ -1,33 +1,30 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Check,
-  MessageSquarePlus,
-  Pencil,
-  RefreshCcw,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Check, MessageSquarePlus, Pencil, RefreshCcw, Trash2, X } from 'lucide-react';
 import {
   AgentSessionView_01,
   type AgentSessionView_01Props,
 } from '@/components/agents-ui/blocks/agent-session-view-01';
-import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Button } from '@/components/ui/button';
 import { FieldSelect } from '@/components/ui/field-select';
+import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/shadcn/utils';
 import type {
+  AgentProfileOption,
   ConversationMessageRecord,
   ConversationRecord,
   KnowledgeBaseOption,
 } from './types';
 
 interface ChatWorkspaceProps {
+  agentProfiles: AgentProfileOption[];
   knowledgeBases: KnowledgeBaseOption[];
   activeKnowledgeBaseId: string | null;
   onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
+  activeAgentProfileId: string | null;
+  onActiveAgentProfileIdChange: (agentProfileId: string | null) => void;
   activeConversationId: string | null;
   onActiveConversationIdChange: (conversationId: string | null) => void;
   persistedMessages: ConversationMessageRecord[];
@@ -105,9 +102,12 @@ type ContextMenuState = {
 } | null;
 
 export function ChatWorkspace({
+  agentProfiles,
   knowledgeBases,
   activeKnowledgeBaseId,
   onActiveKnowledgeBaseIdChange,
+  activeAgentProfileId,
+  onActiveAgentProfileIdChange,
   activeConversationId,
   onActiveConversationIdChange,
   persistedMessages,
@@ -125,9 +125,7 @@ export function ChatWorkspace({
   const [displayedConversationId, setDisplayedConversationId] = useState<string | null>(null);
   const [displayedConversationTitle, setDisplayedConversationTitle] = useState<string | null>(null);
   const [displayedMessages, setDisplayedMessages] = useState<ConversationMessageRecord[]>([]);
-  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessageRecord[]>>(
-    {}
-  );
+  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessageRecord[]>>({});
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
@@ -154,10 +152,28 @@ export function ChatWorkspace({
     }
   }, [activeConversationId]);
 
-  const activeConversation = useMemo(
-    () => conversations.find((item) => item.id === activeConversationId) ?? null,
-    [conversations, activeConversationId]
+  const activeAgentProfile = useMemo(
+    () => agentProfiles.find((item) => item.id === activeAgentProfileId) ?? null,
+    [agentProfiles, activeAgentProfileId]
   );
+  const visibleKnowledgeBases = useMemo(() => {
+    const allowedKbIds = activeAgentProfile?.knowledge_base_ids ?? [];
+    if (allowedKbIds.length === 0) {
+      return knowledgeBases;
+    }
+    const allowedSet = new Set(allowedKbIds);
+    return knowledgeBases.filter((kb) => allowedSet.has(kb.id));
+  }, [activeAgentProfile, knowledgeBases]);
+
+  useEffect(() => {
+    if (!activeKnowledgeBaseId) {
+      return;
+    }
+    if (visibleKnowledgeBases.some((item) => item.id === activeKnowledgeBaseId)) {
+      return;
+    }
+    onActiveKnowledgeBaseIdChange(visibleKnowledgeBases[0]?.id ?? null);
+  }, [activeKnowledgeBaseId, onActiveKnowledgeBaseIdChange, visibleKnowledgeBases]);
 
   useEffect(() => {
     const previousSessionActive = previousSessionActiveRef.current;
@@ -222,7 +238,9 @@ export function ChatWorkspace({
   }
 
   async function fetchMessages(conversationId: string) {
-    return getJson<ConversationMessageRecord[]>(`/api/chat/conversations/${conversationId}/messages`);
+    return getJson<ConversationMessageRecord[]>(
+      `/api/chat/conversations/${conversationId}/messages`
+    );
   }
 
   async function loadMessages(
@@ -285,6 +303,7 @@ export function ChatWorkspace({
       const conversation = await postJson<ConversationRecord>('/api/chat/conversations', {
         title: '新会话',
         knowledge_base_id: activeKnowledgeBaseId,
+        agent_profile_id: activeAgentProfileId,
         last_mode: 'text',
       });
       setConversations((current) => [conversation, ...current]);
@@ -308,10 +327,12 @@ export function ChatWorkspace({
     if (sessionActive || activeConversationId === conversationId) {
       return;
     }
+    const conversation = conversations.find((item) => item.id === conversationId) ?? null;
     onActiveConversationIdChange(conversationId);
+    onActiveKnowledgeBaseIdChange(conversation?.knowledge_base_id ?? null);
+    onActiveAgentProfileIdChange(conversation?.agent_profile_id ?? null);
     const cachedMessages = messageCache[conversationId];
     if (cachedMessages) {
-      const conversation = conversations.find((item) => item.id === conversationId) ?? null;
       setError(null);
       setLoadingMessages(false);
       setDisplayedConversationId(conversationId);
@@ -365,9 +386,12 @@ export function ChatWorkspace({
     try {
       setSavingConversationId(conversationId);
       setError(null);
-      const updated = await patchJson<ConversationRecord>(`/api/chat/conversations/${conversationId}`, {
-        title,
-      });
+      const updated = await patchJson<ConversationRecord>(
+        `/api/chat/conversations/${conversationId}`,
+        {
+          title,
+        }
+      );
       setConversations((current) =>
         current.map((item) => (item.id === conversationId ? updated : item))
       );
@@ -417,17 +441,20 @@ export function ChatWorkspace({
   const contextMenuConversation = useMemo(
     () =>
       contextMenu
-        ? conversations.find((item) => item.id === contextMenu.conversationId) ?? null
+        ? (conversations.find((item) => item.id === contextMenu.conversationId) ?? null)
         : null,
     [contextMenu, conversations]
   );
 
   return (
     <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
-      <Surface className="flex w-full shrink-0 flex-col overflow-hidden lg:w-[320px]" variant="sidebar">
+      <Surface
+        className="flex w-full shrink-0 flex-col overflow-hidden lg:w-[320px]"
+        variant="sidebar"
+      >
         <div className="border-border/70 flex items-center justify-between border-b px-4 py-4">
           <div>
-            <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
+            <p className="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
               会话列表
             </p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight">历史与继续对话</h2>
@@ -451,18 +478,34 @@ export function ChatWorkspace({
           </div>
         </div>
 
-        <div className="border-border/70 border-b px-4 py-4">
-          <label className="mb-2 block text-sm font-medium">当前会话知识库</label>
-          <FieldSelect
-            value={activeKnowledgeBaseId ?? ''}
-            onValueChange={(value) => onActiveKnowledgeBaseIdChange(value || null)}
-            disabled={sessionActive}
-            placeholder="不绑定知识库"
-            options={knowledgeBases.map((kb) => ({
-              value: kb.id,
-              label: kb.name,
-            }))}
-          />
+        <div className="border-border/70 space-y-4 border-b px-4 py-4">
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium">当前会话智能体</span>
+            <FieldSelect
+              value={activeAgentProfileId ?? ''}
+              onValueChange={(value) => onActiveAgentProfileIdChange(value || null)}
+              disabled={sessionActive}
+              placeholder="系统默认智能体"
+              options={agentProfiles.map((profile) => ({
+                value: profile.id,
+                label: profile.name,
+              }))}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium">当前会话知识库</span>
+            <FieldSelect
+              value={activeKnowledgeBaseId ?? ''}
+              onValueChange={(value) => onActiveKnowledgeBaseIdChange(value || null)}
+              disabled={sessionActive}
+              placeholder="不绑定知识库"
+              options={visibleKnowledgeBases.map((kb) => ({
+                value: kb.id,
+                label: kb.name,
+              }))}
+            />
+          </label>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -484,7 +527,7 @@ export function ChatWorkspace({
                 还没有历史会话。先新建一个会话，再选择消息或语音方式开始。
               </Surface>
             ) : (
-              conversations.map((conversation) => (
+              conversations.map((conversation) =>
                 renamingConversationId === conversation.id ? (
                   <InteractiveCard
                     key={conversation.id}
@@ -506,7 +549,7 @@ export function ChatWorkspace({
                           }
                         }}
                         className={cn(
-                          'w-full rounded-xl border bg-background/70 px-3 py-2 text-sm outline-none',
+                          'bg-background/70 w-full rounded-xl border px-3 py-2 text-sm outline-none',
                           activeConversationId === conversation.id
                             ? 'border-primary/30 text-foreground'
                             : 'border-border/60'
@@ -576,7 +619,7 @@ export function ChatWorkspace({
                     </p>
                   </InteractiveCard>
                 )
-              ))
+              )
             )}
           </div>
         </div>
@@ -585,7 +628,7 @@ export function ChatWorkspace({
       <Surface className="flex min-h-0 flex-1 flex-col overflow-hidden" variant="panel">
         <AgentSessionView_01
           {...sessionViewConfig}
-          initialChatOpen={sessionMode === 'text'}
+          initialChatOpen
           sessionMode={sessionMode}
           persistedMessages={displayedMessages}
           activeConversationId={displayedConversationId}

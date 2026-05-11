@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, MessageSquare, Settings2 } from 'lucide-react';
+import { BookOpen, Bot, MessageSquare, Settings2 } from 'lucide-react';
 import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/shadcn/utils';
@@ -19,6 +19,12 @@ const NAV_ITEMS = [
     label: '知识库',
     description: '库、文件与索引管理',
     icon: BookOpen,
+  },
+  {
+    href: '/agents',
+    label: '智能体',
+    description: '提示词、模型与检索策略',
+    icon: Bot,
   },
   {
     href: '/settings',

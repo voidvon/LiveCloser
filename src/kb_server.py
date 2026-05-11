@@ -78,6 +78,17 @@ class ChatModelProfilePayload(BaseModel):
     is_default: bool = False
 
 
+class AgentProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+    system_prompt: str = ""
+    fallback_prompt: str = ""
+    chat_model_profile_id: Optional[str] = None
+    retrieval_top_k: int = 5
+    knowledge_base_ids: list[str] = Field(default_factory=list)
+    is_default: bool = False
+
+
 class SttModelProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider: str = "doubao"
@@ -116,12 +127,14 @@ class TtsModelProfilePayload(BaseModel):
 class ConversationPayload(BaseModel):
     title: str = "新会话"
     knowledge_base_id: Optional[str] = None
+    agent_profile_id: Optional[str] = None
     last_mode: str = "text"
 
 
 class ConversationUpdatePayload(BaseModel):
     title: Optional[str] = None
     knowledge_base_id: Optional[str] = None
+    agent_profile_id: Optional[str] = None
     last_mode: Optional[str] = None
 
 
@@ -145,6 +158,11 @@ def list_chat_model_profiles():
     return service.list_chat_model_profiles()
 
 
+@app.get("/agent-profiles")
+def list_agent_profiles():
+    return service.list_agent_profiles()
+
+
 @app.get("/stt-model-profiles")
 def list_stt_model_profiles():
     return service.list_stt_model_profiles()
@@ -158,6 +176,33 @@ def list_tts_model_profiles():
 @app.post("/chat-model-profiles")
 def create_chat_model_profile(payload: ChatModelProfilePayload):
     return service.create_chat_model_profile(**payload.model_dump())
+
+
+@app.post("/agent-profiles")
+def create_agent_profile(payload: AgentProfilePayload):
+    try:
+        return service.create_agent_profile(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/agent-profiles/{profile_id}")
+def update_agent_profile(profile_id: str, payload: AgentProfilePayload):
+    try:
+        record = service.update_agent_profile(profile_id, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Agent profile not found")
+    return record
+
+
+@app.delete("/agent-profiles/{profile_id}")
+def delete_agent_profile(profile_id: str):
+    deleted = service.delete_agent_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Agent profile not found")
+    return {"ok": True}
 
 
 @app.patch("/chat-model-profiles/{profile_id}")
@@ -355,6 +400,7 @@ def create_conversation(payload: ConversationPayload):
     return conversation_service.create_conversation(
         title=payload.title,
         knowledge_base_id=payload.knowledge_base_id,
+        agent_profile_id=payload.agent_profile_id,
         last_mode=payload.last_mode,
     )
 
@@ -374,6 +420,7 @@ def update_conversation(conversation_id: str, payload: ConversationUpdatePayload
         conversation_id,
         title=values["title"] if "title" in values else _UNSET,
         knowledge_base_id=values["knowledge_base_id"] if "knowledge_base_id" in values else _UNSET,
+        agent_profile_id=values["agent_profile_id"] if "agent_profile_id" in values else _UNSET,
         last_mode=values["last_mode"] if "last_mode" in values else _UNSET,
     )
     if record is None:

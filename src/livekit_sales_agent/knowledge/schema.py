@@ -15,6 +15,33 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS agent_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        system_prompt TEXT NOT NULL DEFAULT '',
+        fallback_prompt TEXT NOT NULL DEFAULT '',
+        chat_model_profile_id TEXT,
+        retrieval_top_k INTEGER NOT NULL DEFAULT 5,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (chat_model_profile_id) REFERENCES chat_model_profiles(id) ON DELETE SET NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS agent_profile_kb_bindings (
+        id TEXT PRIMARY KEY,
+        agent_profile_id TEXT NOT NULL,
+        kb_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+        UNIQUE (agent_profile_id, kb_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS embedding_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -164,12 +191,14 @@ SCHEMA_STATEMENTS = [
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL DEFAULT '新会话',
         knowledge_base_id TEXT,
+        agent_profile_id TEXT,
         last_mode TEXT NOT NULL DEFAULT 'text',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         last_message_at TEXT,
         last_message_preview TEXT NOT NULL DEFAULT '',
-        FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE SET NULL
+        FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+        FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id) ON DELETE SET NULL
     )
     """,
     """
@@ -187,6 +216,10 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_chat_model_profiles_updated_at ON chat_model_profiles(updated_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_model_profiles_single_default ON chat_model_profiles(is_default) WHERE is_default = 1",
+    "CREATE INDEX IF NOT EXISTS idx_agent_profiles_updated_at ON agent_profiles(updated_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_single_default ON agent_profiles(is_default) WHERE is_default = 1",
+    "CREATE INDEX IF NOT EXISTS idx_agent_profile_kb_bindings_agent_profile_id ON agent_profile_kb_bindings(agent_profile_id)",
+    "CREATE INDEX IF NOT EXISTS idx_agent_profile_kb_bindings_kb_id ON agent_profile_kb_bindings(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_stt_model_profiles_updated_at ON stt_model_profiles(updated_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_stt_model_profiles_single_default ON stt_model_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_tts_model_profiles_updated_at ON tts_model_profiles(updated_at)",
@@ -198,6 +231,7 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_kb_jobs_kb_id ON kb_jobs(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_chunks_file_id ON kb_chunks(file_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_conversations_last_message_at ON chat_conversations(last_message_at)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_conversations_agent_profile_id ON chat_conversations(agent_profile_id)",
     "CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id_created_at ON chat_messages(conversation_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_chat_messages_external_message_id ON chat_messages(external_message_id)",
 ]
