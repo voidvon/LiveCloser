@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from uuid import uuid4
 
 from .schema import SCHEMA_STATEMENTS
 
@@ -28,10 +29,20 @@ def ensure_database(db_path: Path) -> None:
 def _run_migrations(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn,
+        table_name="knowledge_bases",
+        column_name="embedding_profile_id",
+        column_sql="TEXT",
+    )
+    _ensure_column(
+        conn,
         table_name="kb_chunks",
         column_name="category_id",
         column_sql="TEXT",
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_embedding_profile_id ON knowledge_bases(embedding_profile_id)"
+    )
+    _backfill_embedding_profiles(conn)
 
 
 def _ensure_column(
@@ -46,3 +57,91 @@ def _ensure_column(
     if column_name in existing:
         return
     conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+
+
+def _backfill_embedding_profiles(conn: sqlite3.Connection) -> None:
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'embedding_profiles'"
+    ).fetchall()
+    if not tables:
+        return
+
+    profiles = conn.execute(
+        """
+        SELECT id, name, provider, model, base_url, api_key_env
+        FROM embedding_profiles
+        """
+    ).fetchall()
+    profile_by_signature = {
+        (
+            row["provider"],
+            row["model"],
+            row["base_url"],
+            row["api_key_env"],
+        ): row["id"]
+        for row in profiles
+    }
+    existing_names = {row["name"] for row in profiles}
+
+    knowledge_bases = conn.execute(
+        """
+        SELECT
+            id,
+            name,
+            embedding_profile_id,
+            embedding_provider,
+            embedding_model,
+            embedding_base_url,
+            embedding_api_key_env
+        FROM knowledge_bases
+        """
+    ).fetchall()
+
+    for kb in knowledge_bases:
+        if kb["embedding_profile_id"]:
+            continue
+
+        signature = (
+            kb["embedding_provider"] or "openai_compatible",
+            kb["embedding_model"] or "",
+            kb["embedding_base_url"] or "",
+            kb["embedding_api_key_env"] or "",
+        )
+        if not any(signature[1:]):
+            continue
+
+        profile_id = profile_by_signature.get(signature)
+        if profile_id is None:
+            base_name = f"{kb['name']} Embedding".strip() or "Embedding Profile"
+            profile_name = base_name
+            suffix = 2
+            while profile_name in existing_names:
+                profile_name = f"{base_name} {suffix}"
+                suffix += 1
+            existing_names.add(profile_name)
+            profile_id = str(uuid4())
+            now = conn.execute("SELECT CURRENT_TIMESTAMP").fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO embedding_profiles (
+                    id, name, provider, model, base_url, api_key_env, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_id,
+                    profile_name,
+                    signature[0],
+                    signature[1],
+                    signature[2],
+                    signature[3],
+                    now,
+                    now,
+                ),
+            )
+            profile_by_signature[signature] = profile_id
+
+        conn.execute(
+            "UPDATE knowledge_bases SET embedding_profile_id = ? WHERE id = ?",
+            (profile_id, kb["id"]),
+        )

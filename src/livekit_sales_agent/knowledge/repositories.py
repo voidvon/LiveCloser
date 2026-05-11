@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from .models import CategoryRecord, ChunkRecord, FileRecord, JobRecord, KnowledgeBaseRecord
+from .models import (
+    CategoryRecord,
+    ChunkRecord,
+    EmbeddingProfileRecord,
+    FileRecord,
+    JobRecord,
+    KnowledgeBaseRecord,
+)
 
 
 def utc_now() -> str:
@@ -14,6 +21,10 @@ def utc_now() -> str:
 
 def _row_to_kb(row: sqlite3.Row) -> KnowledgeBaseRecord:
     return KnowledgeBaseRecord(**dict(row))
+
+
+def _row_to_embedding_profile(row: sqlite3.Row) -> EmbeddingProfileRecord:
+    return EmbeddingProfileRecord(**dict(row))
 
 
 def _row_to_category(row: sqlite3.Row) -> CategoryRecord:
@@ -36,6 +47,77 @@ class KnowledgeBaseRepository:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
+    def list_embedding_profiles(self) -> list[EmbeddingProfileRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM embedding_profiles ORDER BY updated_at DESC, created_at DESC"
+        ).fetchall()
+        return [_row_to_embedding_profile(row) for row in rows]
+
+    def get_embedding_profile(self, profile_id: str) -> Optional[EmbeddingProfileRecord]:
+        row = self._conn.execute(
+            "SELECT * FROM embedding_profiles WHERE id = ?", (profile_id,)
+        ).fetchone()
+        return _row_to_embedding_profile(row) if row else None
+
+    def create_embedding_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key_env: str,
+    ) -> EmbeddingProfileRecord:
+        record_id = str(uuid4())
+        now = utc_now()
+        self._conn.execute(
+            """
+            INSERT INTO embedding_profiles (
+                id, name, provider, model, base_url, api_key_env, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (record_id, name, provider, model, base_url, api_key_env, now, now),
+        )
+        self._conn.commit()
+        record = self.get_embedding_profile(record_id)
+        assert record is not None
+        return record
+
+    def update_embedding_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key_env: str,
+    ) -> Optional[EmbeddingProfileRecord]:
+        now = utc_now()
+        self._conn.execute(
+            """
+            UPDATE embedding_profiles
+            SET name = ?, provider = ?, model = ?, base_url = ?, api_key_env = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, provider, model, base_url, api_key_env, now, profile_id),
+        )
+        self._conn.commit()
+        return self.get_embedding_profile(profile_id)
+
+    def delete_embedding_profile(self, profile_id: str) -> bool:
+        cursor = self._conn.execute("DELETE FROM embedding_profiles WHERE id = ?", (profile_id,))
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def count_knowledge_bases_using_embedding_profile(self, profile_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS count FROM knowledge_bases WHERE embedding_profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        return int(row["count"]) if row else 0
+
     def list_knowledge_bases(self) -> list[KnowledgeBaseRecord]:
         rows = self._conn.execute(
             "SELECT * FROM knowledge_bases ORDER BY updated_at DESC, created_at DESC"
@@ -53,6 +135,7 @@ class KnowledgeBaseRepository:
         *,
         name: str,
         description: str,
+        embedding_profile_id: Optional[str],
         embedding_provider: str,
         embedding_model: str,
         embedding_base_url: str,
@@ -66,15 +149,17 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             INSERT INTO knowledge_bases (
-                id, name, description, embedding_provider, embedding_model, embedding_base_url,
-                embedding_api_key_env, chunk_size, chunk_overlap, retrieval_top_k, created_at, updated_at
+                id, name, description, embedding_profile_id, embedding_provider, embedding_model,
+                embedding_base_url, embedding_api_key_env, chunk_size, chunk_overlap,
+                retrieval_top_k, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
                 name,
                 description,
+                embedding_profile_id,
                 embedding_provider,
                 embedding_model,
                 embedding_base_url,
@@ -97,6 +182,7 @@ class KnowledgeBaseRepository:
         *,
         name: str,
         description: str,
+        embedding_profile_id: Optional[str],
         embedding_provider: str,
         embedding_model: str,
         embedding_base_url: str,
@@ -109,14 +195,15 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             UPDATE knowledge_bases
-            SET name = ?, description = ?, embedding_provider = ?, embedding_model = ?,
-                embedding_base_url = ?, embedding_api_key_env = ?, chunk_size = ?,
-                chunk_overlap = ?, retrieval_top_k = ?, updated_at = ?
+            SET name = ?, description = ?, embedding_profile_id = ?, embedding_provider = ?,
+                embedding_model = ?, embedding_base_url = ?, embedding_api_key_env = ?,
+                chunk_size = ?, chunk_overlap = ?, retrieval_top_k = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 name,
                 description,
+                embedding_profile_id,
                 embedding_provider,
                 embedding_model,
                 embedding_base_url,

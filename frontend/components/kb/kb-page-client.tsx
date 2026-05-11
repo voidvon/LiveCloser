@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCcw, Search, Upload } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, RefreshCcw, Save, Search, Settings2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FieldSelect } from '@/components/ui/field-select';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ type KnowledgeBase = {
   id: string;
   name: string;
   description: string;
+  embedding_profile_id: string | null;
   embedding_provider: string;
   embedding_model: string;
   embedding_base_url: string;
@@ -20,6 +22,17 @@ type KnowledgeBase = {
   chunk_size: number;
   chunk_overlap: number;
   retrieval_top_k: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type EmbeddingProfile = {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key_env: string;
   created_at: string;
   updated_at: string;
 };
@@ -67,13 +80,20 @@ type SearchResult = {
 
 type LoadState = 'idle' | 'loading' | 'error';
 
+type KbConfigForm = {
+  embedding_profile_id: string;
+  chunk_size: string;
+  chunk_overlap: string;
+  retrieval_top_k: string;
+};
+
 const DEFAULT_KB_FORM = {
   name: '',
   description: '',
-  embedding_provider: 'openai_compatible',
-  embedding_model: '',
-  embedding_base_url: '',
-  embedding_api_key_env: '',
+};
+
+const DEFAULT_KB_CONFIG_FORM: KbConfigForm = {
+  embedding_profile_id: '',
   chunk_size: '800',
   chunk_overlap: '120',
   retrieval_top_k: '5',
@@ -99,8 +119,28 @@ async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: objec
   return response.json();
 }
 
+function toKbConfigForm(kb: KnowledgeBase | null): KbConfigForm {
+  if (!kb) return DEFAULT_KB_CONFIG_FORM;
+  return {
+    embedding_profile_id: kb.embedding_profile_id ?? '',
+    chunk_size: String(kb.chunk_size),
+    chunk_overlap: String(kb.chunk_overlap),
+    retrieval_top_k: String(kb.retrieval_top_k),
+  };
+}
+
+function isKbConfigEqual(left: KbConfigForm, right: KbConfigForm) {
+  return (
+    left.embedding_profile_id === right.embedding_profile_id &&
+    left.chunk_size === right.chunk_size &&
+    left.chunk_overlap === right.chunk_overlap &&
+    left.retrieval_top_k === right.retrieval_top_k
+  );
+}
+
 export function KbPageClient() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [embeddingProfiles, setEmbeddingProfiles] = useState<EmbeddingProfile[]>([]);
   const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [files, setFiles] = useState<KbFile[]>([]);
@@ -113,7 +153,9 @@ export function KbPageClient() {
   const [uploading, setUploading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [retryingFileId, setRetryingFileId] = useState<string | null>(null);
+  const [savingKbConfig, setSavingKbConfig] = useState(false);
   const [kbForm, setKbForm] = useState(DEFAULT_KB_FORM);
+  const [kbConfigForm, setKbConfigForm] = useState<KbConfigForm>(DEFAULT_KB_CONFIG_FORM);
   const [categoryName, setCategoryName] = useState('');
   const [uploadCategoryId, setUploadCategoryId] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -132,14 +174,28 @@ export function KbPageClient() {
     () => knowledgeBases.find((item) => item.id === selectedKbId) ?? null,
     [knowledgeBases, selectedKbId]
   );
+  const selectedProfile = useMemo(
+    () => embeddingProfiles.find((item) => item.id === kbConfigForm.embedding_profile_id) ?? null,
+    [embeddingProfiles, kbConfigForm.embedding_profile_id]
+  );
+  const kbConfigSnapshot = useMemo(() => toKbConfigForm(selectedKb), [selectedKb]);
+  const kbConfigDirty = !isKbConfigEqual(kbConfigForm, kbConfigSnapshot);
+
+  useEffect(() => {
+    setKbConfigForm(kbConfigSnapshot);
+  }, [kbConfigSnapshot]);
 
   async function loadKnowledgeBases() {
     try {
       setState('loading');
       setError(null);
-      const data = await getJson<KnowledgeBase[]>('/api/kb/knowledge-bases');
-      setKnowledgeBases(data);
-      setSelectedKbId((current) => current ?? data[0]?.id ?? null);
+      const [nextKnowledgeBases, nextProfiles] = await Promise.all([
+        getJson<KnowledgeBase[]>('/api/kb/knowledge-bases'),
+        getJson<EmbeddingProfile[]>('/api/kb/embedding-profiles'),
+      ]);
+      setKnowledgeBases(nextKnowledgeBases);
+      setEmbeddingProfiles(nextProfiles);
+      setSelectedKbId((current) => current ?? nextKnowledgeBases[0]?.id ?? null);
       setState('idle');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载知识库列表失败');
@@ -173,15 +229,15 @@ export function KbPageClient() {
       setCreatingKb(true);
       setError(null);
       const record = await sendJson<KnowledgeBase>('/api/kb/knowledge-bases', 'POST', {
-        ...kbForm,
         name: kbForm.name.trim(),
         description: kbForm.description.trim(),
-        embedding_model: kbForm.embedding_model.trim(),
-        embedding_base_url: kbForm.embedding_base_url.trim(),
-        embedding_api_key_env: kbForm.embedding_api_key_env.trim(),
-        chunk_size: Number(kbForm.chunk_size),
-        chunk_overlap: Number(kbForm.chunk_overlap),
-        retrieval_top_k: Number(kbForm.retrieval_top_k),
+        embedding_provider: 'openai_compatible',
+        embedding_model: '',
+        embedding_base_url: '',
+        embedding_api_key_env: '',
+        chunk_size: 800,
+        chunk_overlap: 120,
+        retrieval_top_k: 5,
       });
       setKnowledgeBases((current) => [record, ...current]);
       setSelectedKbId(record.id);
@@ -306,22 +362,78 @@ export function KbPageClient() {
     }
   }
 
+  async function handleSaveKbConfig() {
+    if (!selectedKb) {
+      setError('请先选择知识库');
+      return;
+    }
+
+    const chunkSize = Number.parseInt(kbConfigForm.chunk_size, 10);
+    const chunkOverlap = Number.parseInt(kbConfigForm.chunk_overlap, 10);
+    const retrievalTopK = Number.parseInt(kbConfigForm.retrieval_top_k, 10);
+
+    if (!Number.isFinite(chunkSize) || chunkSize <= 0) {
+      setError('切块大小必须是正整数');
+      return;
+    }
+    if (!Number.isFinite(chunkOverlap) || chunkOverlap < 0) {
+      setError('切块重叠必须是大于等于 0 的整数');
+      return;
+    }
+    if (!Number.isFinite(retrievalTopK) || retrievalTopK <= 0) {
+      setError('召回数量必须是正整数');
+      return;
+    }
+
+    try {
+      setSavingKbConfig(true);
+      setError(null);
+      const record = await sendJson<KnowledgeBase>(
+        `/api/kb/knowledge-bases/${selectedKb.id}`,
+        'PATCH',
+        {
+          name: selectedKb.name,
+          description: selectedKb.description,
+          embedding_profile_id: kbConfigForm.embedding_profile_id || null,
+          embedding_provider: selectedKb.embedding_provider,
+          embedding_model: selectedKb.embedding_model,
+          embedding_base_url: selectedKb.embedding_base_url,
+          embedding_api_key_env: selectedKb.embedding_api_key_env,
+          chunk_size: chunkSize,
+          chunk_overlap: chunkOverlap,
+          retrieval_top_k: retrievalTopK,
+        }
+      );
+      setKnowledgeBases((current) =>
+        current.map((item) => (item.id === record.id ? record : item))
+      );
+      setKbConfigForm(toKbConfigForm(record));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '保存知识库配置失败');
+    } finally {
+      setSavingKbConfig(false);
+    }
+  }
+
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))]">
       <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8 md:py-8">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">
-              知识库
-            </p>
+            <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">知识库</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">多知识库检索工作区</h1>
             <p className="text-muted-foreground mt-2 max-w-3xl text-sm leading-6 md:text-base">
-              在这里创建相互隔离的知识库，为每个知识库单独配置 embedding，按分类管理文件，并跟踪索引任务状态。
+              在这里创建相互隔离的知识库，按分类管理文件、选择本库使用的 Embedding
+              模型，并跟踪索引任务状态。
             </p>
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" className="rounded-full" onClick={() => void loadKnowledgeBases()}>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => void loadKnowledgeBases()}
+            >
               <RefreshCcw className="mr-2 size-4" />
               刷新
             </Button>
@@ -364,51 +476,16 @@ export function KbPageClient() {
                   placeholder="描述这个知识库的用途"
                   className="min-h-20"
                 />
-                <Input
-                  value={kbForm.embedding_model}
-                  onChange={(e) =>
-                    setKbForm((current) => ({ ...current, embedding_model: e.target.value }))
-                  }
-                  placeholder="Embedding 模型，例如 text-embedding-3-large"
-                />
-                <Input
-                  value={kbForm.embedding_base_url}
-                  onChange={(e) =>
-                    setKbForm((current) => ({ ...current, embedding_base_url: e.target.value }))
-                  }
-                  placeholder="Embedding Base URL"
-                />
-                <Input
-                  value={kbForm.embedding_api_key_env}
-                  onChange={(e) =>
-                    setKbForm((current) => ({ ...current, embedding_api_key_env: e.target.value }))
-                  }
-                  placeholder="Embedding API Key"
-                />
-                <div className="grid grid-cols-3 gap-2">
-                  <Input
-                    value={kbForm.chunk_size}
-                    onChange={(e) =>
-                      setKbForm((current) => ({ ...current, chunk_size: e.target.value }))
-                    }
-                    placeholder="切块大小"
-                  />
-                  <Input
-                    value={kbForm.chunk_overlap}
-                    onChange={(e) =>
-                      setKbForm((current) => ({ ...current, chunk_overlap: e.target.value }))
-                    }
-                    placeholder="重叠"
-                  />
-                  <Input
-                    value={kbForm.retrieval_top_k}
-                    onChange={(e) =>
-                      setKbForm((current) => ({ ...current, retrieval_top_k: e.target.value }))
-                    }
-                    placeholder="Top K"
-                  />
-                </div>
-                <Button className="w-full rounded-full" onClick={() => void handleCreateKnowledgeBase()} disabled={creatingKb}>
+                <p className="text-muted-foreground text-xs leading-5">
+                  新建后可在右侧为该知识库选择一个全局 Embedding 模型；模型本身在
+                  <span className="font-mono"> /settings </span>
+                  维护。
+                </p>
+                <Button
+                  className="w-full rounded-full"
+                  onClick={() => void handleCreateKnowledgeBase()}
+                  disabled={creatingKb}
+                >
                   <Plus className="mr-2 size-4" />
                   {creatingKb ? '创建中...' : '新建知识库'}
                 </Button>
@@ -420,11 +497,13 @@ export function KbPageClient() {
               {state !== 'loading' && knowledgeBases.length === 0 ? (
                 <EmptyBlock
                   title="还没有知识库"
-                  description="请先创建第一个知识库，再上传文件或配置 embedding。"
+                  description="请先创建第一个知识库，再到右侧为它选择一个全局 Embedding 模型。"
                 />
               ) : null}
               {knowledgeBases.map((kb) => {
                 const active = kb.id === selectedKbId;
+                const profile =
+                  embeddingProfiles.find((item) => item.id === kb.embedding_profile_id) ?? null;
                 return (
                   <InteractiveCard
                     key={kb.id}
@@ -443,12 +522,14 @@ export function KbPageClient() {
                     }}
                   >
                     <p className="font-medium">{kb.name}</p>
-                    <p className={`mt-2 text-sm leading-5 ${active ? 'text-foreground/75' : 'text-muted-foreground'}`}>
+                    <p
+                      className={`mt-2 text-sm leading-5 ${active ? 'text-foreground/75' : 'text-muted-foreground'}`}
+                    >
                       {kb.description || '暂无描述。'}
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.2em]">
-                      <span>{kb.embedding_provider}</span>
-                      <span>{kb.embedding_model || '待配置模型'}</span>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] tracking-[0.2em] uppercase">
+                      <span>{profile?.provider ?? kb.embedding_provider}</span>
+                      <span>{profile?.name || kb.embedding_model || '未绑定模型'}</span>
                     </div>
                   </InteractiveCard>
                 );
@@ -515,7 +596,7 @@ export function KbPageClient() {
                         {categories.map((category) => (
                           <span
                             key={category.id}
-                            className="rounded-full border border-primary/18 bg-primary/10 px-3 py-1 text-sm"
+                            className="border-primary/18 bg-primary/10 rounded-full border px-3 py-1 text-sm"
                           >
                             {category.name}
                           </span>
@@ -539,7 +620,7 @@ export function KbPageClient() {
                       <input
                         type="file"
                         onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                        className="border-border/60 bg-background/60 hover:border-primary/20 focus:border-primary/30 block w-full rounded-2xl border px-3 py-2 text-sm outline-none transition-colors"
+                        className="border-border/60 bg-background/60 hover:border-primary/20 focus:border-primary/30 block w-full rounded-2xl border px-3 py-2 text-sm transition-colors outline-none"
                       />
                       <Button
                         className="w-full rounded-full"
@@ -573,12 +654,12 @@ export function KbPageClient() {
                         </tr>
                       ) : (
                         files.map((file) => (
-                          <tr key={file.id} className="border-t border-border/60">
+                          <tr key={file.id} className="border-border/60 border-t">
                             <td className="px-4 py-3">{file.original_name}</td>
                             <td className="px-4 py-3">{file.mime_type || '-'}</td>
                             <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
                             <td className="px-4 py-3">
-                              <span className="rounded-full border border-primary/18 bg-primary/10 px-2.5 py-1 text-xs uppercase">
+                              <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-xs uppercase">
                                 {file.status}
                               </span>
                             </td>
@@ -609,21 +690,104 @@ export function KbPageClient() {
 
           <section className="space-y-4">
             <Surface padding="md">
-              <h2 className="text-lg font-semibold">Embedding 配置</h2>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">知识库配置</h2>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    为当前知识库选择 Embedding 模型，并维护本库的切块与召回参数。
+                  </p>
+                </div>
+                <Button asChild variant="outline" size="sm" className="rounded-full">
+                  <Link href="/settings">
+                    <Settings2 className="mr-2 size-4" />
+                    管理模型
+                  </Link>
+                </Button>
+              </div>
+
               {!selectedKb ? (
-                <p className="text-muted-foreground mt-3 text-sm">选择一个知识库后，可在这里查看当前配置。</p>
+                <p className="text-muted-foreground mt-4 text-sm">选择一个知识库后再配置。</p>
               ) : (
-                <div className="mt-4 space-y-3 text-sm">
-                  <ConfigRow label="提供方" value={selectedKb.embedding_provider} />
-                  <ConfigRow label="模型" value={selectedKb.embedding_model || '未配置'} />
-                  <ConfigRow label="Base URL" value={selectedKb.embedding_base_url || '未配置'} />
-                  <ConfigRow
-                    label="API Key 配置"
-                    value={selectedKb.embedding_api_key_env || '未配置'}
-                  />
-                  <ConfigRow label="切块大小" value={String(selectedKb.chunk_size)} />
-                  <ConfigRow label="切块重叠" value={String(selectedKb.chunk_overlap)} />
-                  <ConfigRow label="召回数量" value={String(selectedKb.retrieval_top_k)} />
+                <div className="mt-4 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium">Embedding 模型</span>
+                    <FieldSelect
+                      value={kbConfigForm.embedding_profile_id}
+                      onValueChange={(value) =>
+                        setKbConfigForm((current) => ({
+                          ...current,
+                          embedding_profile_id: value,
+                        }))
+                      }
+                      placeholder={
+                        embeddingProfiles.length === 0 ? '请先到 /settings 新建模型' : '选择模型'
+                      }
+                      options={embeddingProfiles.map((profile) => ({
+                        value: profile.id,
+                        label: `${profile.name}${profile.model ? ` · ${profile.model}` : ''}`,
+                      }))}
+                    />
+                  </label>
+
+                  {selectedProfile ? (
+                    <InteractiveCard variant="default" radius="lg" padding="md">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-muted-foreground">当前模型</span>
+                        <span className="font-mono text-xs">{selectedProfile.name}</span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-4">
+                        <span className="text-muted-foreground">模型 ID</span>
+                        <span className="font-mono text-xs">
+                          {selectedProfile.model || '未配置'}
+                        </span>
+                      </div>
+                    </InteractiveCard>
+                  ) : null}
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      value={kbConfigForm.chunk_size}
+                      onChange={(e) =>
+                        setKbConfigForm((current) => ({
+                          ...current,
+                          chunk_size: e.target.value,
+                        }))
+                      }
+                      placeholder="切块大小"
+                      inputMode="numeric"
+                    />
+                    <Input
+                      value={kbConfigForm.chunk_overlap}
+                      onChange={(e) =>
+                        setKbConfigForm((current) => ({
+                          ...current,
+                          chunk_overlap: e.target.value,
+                        }))
+                      }
+                      placeholder="重叠"
+                      inputMode="numeric"
+                    />
+                    <Input
+                      value={kbConfigForm.retrieval_top_k}
+                      onChange={(e) =>
+                        setKbConfigForm((current) => ({
+                          ...current,
+                          retrieval_top_k: e.target.value,
+                        }))
+                      }
+                      placeholder="Top K"
+                      inputMode="numeric"
+                    />
+                  </div>
+
+                  <Button
+                    className="w-full rounded-full"
+                    onClick={() => void handleSaveKbConfig()}
+                    disabled={savingKbConfig || !kbConfigDirty}
+                  >
+                    <Save className="mr-2 size-4" />
+                    {savingKbConfig ? '保存中...' : '保存知识库配置'}
+                  </Button>
                 </div>
               )}
             </Surface>
@@ -686,7 +850,7 @@ export function KbPageClient() {
                     <InteractiveCard key={job.id} variant="default" radius="lg" padding="md">
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium">{job.job_type}</p>
-                        <span className="rounded-full border border-primary/18 bg-primary/10 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em]">
+                        <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-[11px] tracking-[0.18em] uppercase">
                           {job.status}
                         </span>
                       </div>
@@ -710,22 +874,11 @@ export function KbPageClient() {
   );
 }
 
-function ConfigRow({ label, value }: { label: string; value: string }) {
-  return (
-    <InteractiveCard variant="default" radius="lg" padding="md" className="flex items-center justify-between gap-4">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono text-xs">{value}</span>
-    </InteractiveCard>
-  );
-}
-
 function EmptyBlock({ title, description }: { title: string; description: string }) {
   return (
     <Surface className="border-dashed px-4 py-8 text-center" variant="muted" radius="lg">
       <p className="font-medium">{title}</p>
-      <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-6">
-        {description}
-      </p>
+      <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-6">{description}</p>
     </Surface>
   );
 }
@@ -734,12 +887,7 @@ function KbGhost({ lines }: { lines: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: lines }).map((_, index) => (
-        <Surface
-          key={index}
-          className="h-24 animate-pulse"
-          variant="muted"
-          radius="lg"
-        />
+        <Surface key={index} className="h-24 animate-pulse" variant="muted" radius="lg" />
       ))}
     </div>
   );

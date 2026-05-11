@@ -2,10 +2,23 @@ from __future__ import annotations
 
 SCHEMA_STATEMENTS = [
     """
+    CREATE TABLE IF NOT EXISTS embedding_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'openai_compatible',
+        model TEXT NOT NULL DEFAULT '',
+        base_url TEXT NOT NULL DEFAULT '',
+        api_key_env TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS knowledge_bases (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
+        embedding_profile_id TEXT,
         embedding_provider TEXT NOT NULL DEFAULT 'openai_compatible',
         embedding_model TEXT NOT NULL DEFAULT '',
         embedding_base_url TEXT NOT NULL DEFAULT '',
@@ -14,7 +27,8 @@ SCHEMA_STATEMENTS = [
         chunk_overlap INTEGER NOT NULL DEFAULT 120,
         retrieval_top_k INTEGER NOT NULL DEFAULT 5,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (embedding_profile_id) REFERENCES embedding_profiles(id) ON DELETE SET NULL
     )
     """,
     """
@@ -116,6 +130,7 @@ SCHEMA_STATEMENTS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_kb_categories_kb_id ON kb_categories(kb_id)",
+    "CREATE INDEX IF NOT EXISTS idx_embedding_profiles_updated_at ON embedding_profiles(updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_kb_id ON kb_files(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_files_category_id ON kb_files(category_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_jobs_kb_id ON kb_jobs(kb_id)",

@@ -22,14 +22,67 @@ class KnowledgeService:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_knowledge_bases()
 
+    def list_embedding_profiles(self):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.list_embedding_profiles()
+
     def resume_pending_jobs(self) -> None:
         self._job_runner.resume_pending_jobs()
+
+    def create_embedding_profile(
+        self,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key_env: str,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.create_embedding_profile(
+                name=name,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                api_key_env=api_key_env,
+            )
+
+    def update_embedding_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key_env: str,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            return repo.update_embedding_profile(
+                profile_id,
+                name=name,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                api_key_env=api_key_env,
+            )
+
+    def delete_embedding_profile(self, profile_id: str) -> tuple[bool, bool]:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            if repo.count_knowledge_bases_using_embedding_profile(profile_id) > 0:
+                return False, True
+            return repo.delete_embedding_profile(profile_id), False
 
     def create_knowledge_base(
         self,
         *,
         name: str,
         description: str,
+        embedding_profile_id: Optional[str],
         embedding_provider: str,
         embedding_model: str,
         embedding_base_url: str,
@@ -40,9 +93,12 @@ class KnowledgeService:
     ):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
+            if embedding_profile_id and repo.get_embedding_profile(embedding_profile_id) is None:
+                raise ValueError("Embedding profile not found")
             return repo.create_knowledge_base(
                 name=name,
                 description=description,
+                embedding_profile_id=embedding_profile_id,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
                 embedding_base_url=embedding_base_url,
@@ -58,6 +114,7 @@ class KnowledgeService:
         *,
         name: str,
         description: str,
+        embedding_profile_id: Optional[str],
         embedding_provider: str,
         embedding_model: str,
         embedding_base_url: str,
@@ -68,10 +125,13 @@ class KnowledgeService:
     ):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
+            if embedding_profile_id and repo.get_embedding_profile(embedding_profile_id) is None:
+                raise ValueError("Embedding profile not found")
             return repo.update_knowledge_base(
                 kb_id,
                 name=name,
                 description=description,
+                embedding_profile_id=embedding_profile_id,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
                 embedding_base_url=embedding_base_url,

@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BookOpen, MessageSquare, Settings2 } from 'lucide-react';
-import { cn } from '@/lib/shadcn/utils';
 import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Surface } from '@/components/ui/surface';
+import { cn } from '@/lib/shadcn/utils';
 
 const NAV_ITEMS = [
   {
@@ -17,13 +17,13 @@ const NAV_ITEMS = [
   {
     href: '/kb',
     label: '知识库',
-    description: '库、文件与向量配置',
+    description: '库、文件与索引管理',
     icon: BookOpen,
   },
   {
     href: '/settings',
     label: '设置',
-    description: '运行时与集成配置',
+    description: 'Embedding 模型中心',
     icon: Settings2,
   },
 ];
@@ -39,13 +39,11 @@ export function AppShell({ children }: AppShellProps) {
     <div className="bg-background text-foreground min-h-svh">
       <div className="grid min-h-svh grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
         <Surface
-          className="rounded-none border-sidebar-border/60 border-b px-5 py-6 lg:border-r lg:border-b-0"
+          className="border-sidebar-border/60 rounded-none border-b px-5 py-6 lg:border-r lg:border-b-0"
           variant="sidebar"
         >
           <div className="mb-8">
-            <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">
-              销售助手
-            </p>
+            <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">销售助手</p>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight">工作台</h1>
             <p className="text-muted-foreground mt-2 max-w-xs text-sm leading-6">
               在这里管理实时会话，以及它依赖的知识库系统。
@@ -61,11 +59,7 @@ export function AppShell({ children }: AppShellProps) {
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block"
-                >
+                <Link key={item.href} href={item.href} className="block">
                   <InteractiveCard
                     variant={active ? 'selected' : 'default'}
                     className={cn(!active && 'border-transparent bg-transparent')}
@@ -98,12 +92,15 @@ export function AppShell({ children }: AppShellProps) {
             })}
           </nav>
 
-          <Surface className="border-sidebar-border/60 mt-8" variant="elevated" radius="lg" padding="md">
-            <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
-              知识栈
-            </p>
+          <Surface
+            className="border-sidebar-border/60 mt-8"
+            variant="elevated"
+            radius="lg"
+            padding="md"
+          >
+            <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase">知识栈</p>
             <p className="text-muted-foreground mt-2 text-sm leading-6">
-              支持多知识库检索，并可为每个知识库单独配置 embedding 与文件分类。
+              支持多知识库检索；模型在设置页统一维护，知识库页只负责选择使用哪个模型。
             </p>
           </Surface>
         </Surface>

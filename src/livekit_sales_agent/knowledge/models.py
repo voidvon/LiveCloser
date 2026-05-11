@@ -9,6 +9,7 @@ class KnowledgeBaseRecord:
     id: str
     name: str
     description: str
+    embedding_profile_id: Optional[str]
     embedding_provider: str
     embedding_model: str
     embedding_base_url: str
@@ -16,6 +17,18 @@ class KnowledgeBaseRecord:
     chunk_size: int
     chunk_overlap: int
     retrieval_top_k: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class EmbeddingProfileRecord:
+    id: str
+    name: str
+    provider: str
+    model: str
+    base_url: str
+    api_key_env: str
     created_at: str
     updated_at: str
 

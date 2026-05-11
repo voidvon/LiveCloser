@@ -74,11 +74,25 @@ class JobRunner:
                     for candidate in chunk_candidates
                 ]
 
+                embedding_provider = kb_record.embedding_provider
+                embedding_model = kb_record.embedding_model
+                embedding_base_url = kb_record.embedding_base_url
+                embedding_api_key_env = kb_record.embedding_api_key_env
+
+                if kb_record.embedding_profile_id:
+                    profile = repo.get_embedding_profile(kb_record.embedding_profile_id)
+                    if profile is None:
+                        raise ValueError("知识库绑定的 Embedding 模型不存在")
+                    embedding_provider = profile.provider
+                    embedding_model = profile.model
+                    embedding_base_url = profile.base_url
+                    embedding_api_key_env = profile.api_key_env
+
                 embedding_client = EmbeddingClient(
-                    provider=kb_record.embedding_provider,
-                    model=kb_record.embedding_model,
-                    base_url=kb_record.embedding_base_url,
-                    api_key_env=kb_record.embedding_api_key_env,
+                    provider=embedding_provider,
+                    model=embedding_model,
+                    base_url=embedding_base_url,
+                    api_key_env=embedding_api_key_env,
                 )
                 vectors = embedding_client.embed_texts([item.content for item in chunk_docs])
 

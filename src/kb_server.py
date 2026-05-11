@@ -44,6 +44,7 @@ app.add_middleware(
 class KnowledgeBasePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
+    embedding_profile_id: Optional[str] = None
     embedding_provider: str = "openai_compatible"
     embedding_model: str = ""
     embedding_base_url: str = ""
@@ -57,6 +58,14 @@ class CategoryPayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     parent_id: Optional[str] = None
     sort_order: int = 0
+
+
+class EmbeddingProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider: str = "openai_compatible"
+    model: str = ""
+    base_url: str = ""
+    api_key_env: str = ""
 
 
 class ConversationPayload(BaseModel):
@@ -81,14 +90,48 @@ def list_knowledge_bases():
     return service.list_knowledge_bases()
 
 
+@app.get("/embedding-profiles")
+def list_embedding_profiles():
+    return service.list_embedding_profiles()
+
+
+@app.post("/embedding-profiles")
+def create_embedding_profile(payload: EmbeddingProfilePayload):
+    return service.create_embedding_profile(**payload.model_dump())
+
+
+@app.patch("/embedding-profiles/{profile_id}")
+def update_embedding_profile(profile_id: str, payload: EmbeddingProfilePayload):
+    record = service.update_embedding_profile(profile_id, **payload.model_dump())
+    if record is None:
+        raise HTTPException(status_code=404, detail="Embedding profile not found")
+    return record
+
+
+@app.delete("/embedding-profiles/{profile_id}")
+def delete_embedding_profile(profile_id: str):
+    deleted, in_use = service.delete_embedding_profile(profile_id)
+    if in_use:
+        raise HTTPException(status_code=409, detail="Embedding profile is still used by knowledge bases")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Embedding profile not found")
+    return {"ok": True}
+
+
 @app.post("/knowledge-bases")
 def create_knowledge_base(payload: KnowledgeBasePayload):
-    return service.create_knowledge_base(**payload.model_dump())
+    try:
+        return service.create_knowledge_base(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.patch("/knowledge-bases/{kb_id}")
 def update_knowledge_base(kb_id: str, payload: KnowledgeBasePayload):
-    record = service.update_knowledge_base(kb_id, **payload.model_dump())
+    try:
+        record = service.update_knowledge_base(kb_id, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if record is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     return record
