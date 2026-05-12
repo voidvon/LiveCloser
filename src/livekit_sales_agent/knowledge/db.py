@@ -4,7 +4,11 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE
+from livekit_sales_agent.defaults import (
+    DEFAULT_IDLE_GOODBYE_MESSAGE,
+    DEFAULT_IDLE_REMINDER_MESSAGE,
+    DEFAULT_OPENING_MESSAGE,
+)
 
 from .schema import SCHEMA_STATEMENTS
 
@@ -58,10 +62,58 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="agent_profile_id",
         column_sql="TEXT",
     )
+    _ensure_column(
+        conn,
+        table_name="chat_conversations",
+        column_name="status",
+        column_sql="TEXT NOT NULL DEFAULT 'active'",
+    )
+    _ensure_column(
+        conn,
+        table_name="chat_conversations",
+        column_name="ended_at",
+        column_sql="TEXT",
+    )
+    _ensure_column(
+        conn,
+        table_name="chat_conversations",
+        column_name="end_reason",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn,
+        table_name="chat_conversations",
+        column_name="end_detail",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
     added_opening_message = _ensure_column(
         conn,
         table_name="agent_profiles",
         column_name="opening_message",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_idle_timeout_seconds = _ensure_column(
+        conn,
+        table_name="agent_profiles",
+        column_name="idle_timeout_seconds",
+        column_sql="REAL NOT NULL DEFAULT 10.0",
+    )
+    added_max_idle_reminders = _ensure_column(
+        conn,
+        table_name="agent_profiles",
+        column_name="max_idle_reminders",
+        column_sql="INTEGER NOT NULL DEFAULT 1",
+    )
+    added_idle_reminder_message = _ensure_column(
+        conn,
+        table_name="agent_profiles",
+        column_name="idle_reminder_message",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_idle_goodbye_message = _ensure_column(
+        conn,
+        table_name="agent_profiles",
+        column_name="idle_goodbye_message",
         column_sql="TEXT NOT NULL DEFAULT ''",
     )
     conn.execute(
@@ -70,6 +122,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     _backfill_embedding_profiles(conn)
     if added_opening_message:
         _backfill_agent_profile_opening_messages(conn)
+    if added_idle_timeout_seconds or added_max_idle_reminders:
+        _backfill_agent_profile_idle_thresholds(conn)
+    if added_idle_reminder_message or added_idle_goodbye_message:
+        _backfill_agent_profile_idle_messages(conn)
 
 
 def _ensure_column(
@@ -179,4 +235,24 @@ def _backfill_agent_profile_opening_messages(conn: sqlite3.Connection) -> None:
     conn.execute(
         "UPDATE agent_profiles SET opening_message = ? WHERE opening_message = ''",
         (DEFAULT_OPENING_MESSAGE,),
+    )
+
+
+def _backfill_agent_profile_idle_thresholds(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE agent_profiles SET idle_timeout_seconds = 10.0 WHERE idle_timeout_seconds IS NULL",
+    )
+    conn.execute(
+        "UPDATE agent_profiles SET max_idle_reminders = 1 WHERE max_idle_reminders IS NULL",
+    )
+
+
+def _backfill_agent_profile_idle_messages(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE agent_profiles SET idle_reminder_message = ? WHERE idle_reminder_message = ''",
+        (DEFAULT_IDLE_REMINDER_MESSAGE,),
+    )
+    conn.execute(
+        "UPDATE agent_profiles SET idle_goodbye_message = ? WHERE idle_goodbye_message = ''",
+        (DEFAULT_IDLE_GOODBYE_MESSAGE,),
     )

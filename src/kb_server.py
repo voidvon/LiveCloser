@@ -88,6 +88,10 @@ class AgentProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
     opening_message: str = ""
+    idle_timeout_seconds: float = 10.0
+    max_idle_reminders: int = 1
+    idle_reminder_message: str = ""
+    idle_goodbye_message: str = ""
     system_prompt: str = ""
     fallback_prompt: str = ""
     chat_model_profile_id: Optional[str] = None

@@ -54,6 +54,10 @@ class ConversationContextTest(unittest.TestCase):
                 verify_conn.close()
 
             self.assertIn("agent_profile_id", columns)
+            self.assertIn("status", columns)
+            self.assertIn("ended_at", columns)
+            self.assertIn("end_reason", columns)
+            self.assertIn("end_detail", columns)
             self.assertIn("idx_chat_conversations_agent_profile_id", indexes)
 
     def test_developer_messages_are_normalized_to_system(self) -> None:
@@ -108,6 +112,10 @@ class ConversationContextTest(unittest.TestCase):
                 name="默认顾问",
                 description="",
                 opening_message="你好，我是默认顾问。",
+                idle_timeout_seconds=10.0,
+                max_idle_reminders=1,
+                idle_reminder_message="喂，您还在吗？",
+                idle_goodbye_message="我先不打扰您了。",
                 system_prompt="",
                 fallback_prompt="",
                 chat_model_profile_id=chat_model.id,
@@ -130,6 +138,26 @@ class ConversationContextTest(unittest.TestCase):
             )
             self.assertEqual(ensured.agent_profile_id, agent.id)
             self.assertEqual(ensured.last_mode, "voice")
+
+    def test_end_conversation_persists_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "app.db"
+            ensure_database(db_path)
+            conversation_service = ConversationService(db_path=db_path)
+
+            conversation = conversation_service.create_conversation(title="call-1", last_mode="voice")
+            ended = conversation_service.end_conversation(
+                conversation.id,
+                reason="away_timeout",
+                detail="participant_disconnected",
+            )
+
+            self.assertIsNotNone(ended)
+            assert ended is not None
+            self.assertEqual(ended.status, "ended")
+            self.assertEqual(ended.end_reason, "away_timeout")
+            self.assertEqual(ended.end_detail, "participant_disconnected")
+            self.assertIsNotNone(ended.ended_at)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,10 @@ export type ConversationRecord = {
   knowledge_base_id: string | null;
   agent_profile_id: string | null;
   last_mode: 'text' | 'voice';
+  status: string;
+  ended_at: string | null;
+  end_reason: string;
+  end_detail: string;
   created_at: string;
   updated_at: string;
   last_message_at: string | null;

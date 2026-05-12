@@ -283,6 +283,10 @@ class KnowledgeBaseRepository:
         name: str,
         description: str,
         opening_message: str,
+        idle_timeout_seconds: float,
+        max_idle_reminders: int,
+        idle_reminder_message: str,
+        idle_goodbye_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -298,16 +302,21 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             INSERT INTO agent_profiles (
-                id, name, description, opening_message, system_prompt, fallback_prompt,
+                id, name, description, opening_message, idle_timeout_seconds, max_idle_reminders,
+                idle_reminder_message, idle_goodbye_message, system_prompt, fallback_prompt,
                 chat_model_profile_id, retrieval_top_k, is_default, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
                 name,
                 description,
                 opening_message,
+                idle_timeout_seconds,
+                max_idle_reminders,
+                idle_reminder_message,
+                idle_goodbye_message,
                 system_prompt,
                 fallback_prompt,
                 chat_model_profile_id,
@@ -330,6 +339,10 @@ class KnowledgeBaseRepository:
         name: str,
         description: str,
         opening_message: str,
+        idle_timeout_seconds: float,
+        max_idle_reminders: int,
+        idle_reminder_message: str,
+        idle_goodbye_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -352,14 +365,20 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             UPDATE agent_profiles
-            SET name = ?, description = ?, opening_message = ?, system_prompt = ?, fallback_prompt = ?,
-                chat_model_profile_id = ?, retrieval_top_k = ?, is_default = ?, updated_at = ?
+            SET name = ?, description = ?, opening_message = ?, idle_timeout_seconds = ?,
+                max_idle_reminders = ?, idle_reminder_message = ?, idle_goodbye_message = ?,
+                system_prompt = ?, fallback_prompt = ?, chat_model_profile_id = ?,
+                retrieval_top_k = ?, is_default = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 name,
                 description,
                 opening_message,
+                idle_timeout_seconds,
+                max_idle_reminders,
+                idle_reminder_message,
+                idle_goodbye_message,
                 system_prompt,
                 fallback_prompt,
                 chat_model_profile_id,

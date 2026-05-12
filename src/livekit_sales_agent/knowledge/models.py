@@ -52,6 +52,10 @@ class AgentProfileRecord:
     name: str
     description: str
     opening_message: str
+    idle_timeout_seconds: float
+    max_idle_reminders: int
+    idle_reminder_message: str
+    idle_goodbye_message: str
     system_prompt: str
     fallback_prompt: str
     chat_model_profile_id: Optional[str]

@@ -59,10 +59,11 @@ class ConversationRepository:
         self._conn.execute(
             """
             INSERT INTO chat_conversations (
-                id, title, knowledge_base_id, agent_profile_id, last_mode,
+                id, title, knowledge_base_id, agent_profile_id, last_mode, status,
+                ended_at, end_reason, end_detail,
                 created_at, updated_at, last_message_at, last_message_preview
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '')
+            VALUES (?, ?, ?, ?, ?, 'active', NULL, '', '', ?, ?, ?, '')
             """,
             (record_id, title, knowledge_base_id, agent_profile_id, last_mode, now, now, None),
         )
@@ -79,6 +80,10 @@ class ConversationRepository:
         knowledge_base_id: Optional[str] | object = _UNSET,
         agent_profile_id: Optional[str] | object = _UNSET,
         last_mode: str | object = _UNSET,
+        status: str | object = _UNSET,
+        ended_at: Optional[str] | object = _UNSET,
+        end_reason: str | object = _UNSET,
+        end_detail: str | object = _UNSET,
     ) -> Optional[ConversationRecord]:
         current = self.get_conversation(conversation_id)
         if current is None:
@@ -88,7 +93,8 @@ class ConversationRepository:
         self._conn.execute(
             """
             UPDATE chat_conversations
-            SET title = ?, knowledge_base_id = ?, agent_profile_id = ?, last_mode = ?, updated_at = ?
+            SET title = ?, knowledge_base_id = ?, agent_profile_id = ?, last_mode = ?,
+                status = ?, ended_at = ?, end_reason = ?, end_detail = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -98,9 +104,36 @@ class ConversationRepository:
                 else knowledge_base_id,
                 current.agent_profile_id if agent_profile_id is _UNSET else agent_profile_id,
                 current.last_mode if last_mode is _UNSET else last_mode,
+                current.status if status is _UNSET else status,
+                current.ended_at if ended_at is _UNSET else ended_at,
+                current.end_reason if end_reason is _UNSET else end_reason,
+                current.end_detail if end_detail is _UNSET else end_detail,
                 now,
                 conversation_id,
             ),
+        )
+        self._conn.commit()
+        return self.get_conversation(conversation_id)
+
+    def end_conversation(
+        self,
+        conversation_id: str,
+        *,
+        reason: str,
+        detail: str = "",
+        ended_at: Optional[str] = None,
+    ) -> Optional[ConversationRecord]:
+        current = self.get_conversation(conversation_id)
+        if current is None:
+            return None
+        finished_at = ended_at or utc_now()
+        self._conn.execute(
+            """
+            UPDATE chat_conversations
+            SET status = 'ended', ended_at = ?, end_reason = ?, end_detail = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (finished_at, reason, detail, finished_at, conversation_id),
         )
         self._conn.commit()
         return self.get_conversation(conversation_id)

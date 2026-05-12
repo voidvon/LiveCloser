@@ -97,9 +97,15 @@ class KnowledgeService:
         chat_model_profile_id: Optional[str],
         knowledge_base_ids: list[str],
         retrieval_top_k: int,
+        idle_timeout_seconds: float,
+        max_idle_reminders: int,
     ) -> None:
         if retrieval_top_k <= 0:
             raise ValueError("向量召回数量必须大于 0")
+        if idle_timeout_seconds < 0:
+            raise ValueError("无人应答超时时间不能小于 0")
+        if max_idle_reminders < 0:
+            raise ValueError("无人应答提醒次数不能小于 0")
         if chat_model_profile_id and repo.get_chat_model_profile(chat_model_profile_id) is None:
             raise ValueError("智能体绑定的对话模型不存在")
         missing_kb_ids = [kb_id for kb_id in knowledge_base_ids if repo.get_knowledge_base(kb_id) is None]
@@ -112,6 +118,10 @@ class KnowledgeService:
         name: str,
         description: str,
         opening_message: str,
+        idle_timeout_seconds: float,
+        max_idle_reminders: int,
+        idle_reminder_message: str,
+        idle_goodbye_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -127,12 +137,18 @@ class KnowledgeService:
                 chat_model_profile_id=chat_model_profile_id,
                 knowledge_base_ids=normalized_kb_ids,
                 retrieval_top_k=retrieval_top_k,
+                idle_timeout_seconds=idle_timeout_seconds,
+                max_idle_reminders=max_idle_reminders,
             )
             try:
                 return repo.create_agent_profile(
                     name=name,
                     description=description,
                     opening_message=opening_message,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                    max_idle_reminders=max_idle_reminders,
+                    idle_reminder_message=idle_reminder_message,
+                    idle_goodbye_message=idle_goodbye_message,
                     system_prompt=system_prompt,
                     fallback_prompt=fallback_prompt,
                     chat_model_profile_id=chat_model_profile_id,
@@ -150,6 +166,10 @@ class KnowledgeService:
         name: str,
         description: str,
         opening_message: str,
+        idle_timeout_seconds: float,
+        max_idle_reminders: int,
+        idle_reminder_message: str,
+        idle_goodbye_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -165,6 +185,8 @@ class KnowledgeService:
                 chat_model_profile_id=chat_model_profile_id,
                 knowledge_base_ids=normalized_kb_ids,
                 retrieval_top_k=retrieval_top_k,
+                idle_timeout_seconds=idle_timeout_seconds,
+                max_idle_reminders=max_idle_reminders,
             )
             try:
                 return repo.update_agent_profile(
@@ -172,6 +194,10 @@ class KnowledgeService:
                     name=name,
                     description=description,
                     opening_message=opening_message,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                    max_idle_reminders=max_idle_reminders,
+                    idle_reminder_message=idle_reminder_message,
+                    idle_goodbye_message=idle_goodbye_message,
                     system_prompt=system_prompt,
                     fallback_prompt=fallback_prompt,
                     chat_model_profile_id=chat_model_profile_id,

@@ -11,6 +11,10 @@ class ConversationRecord:
     knowledge_base_id: Optional[str]
     agent_profile_id: Optional[str]
     last_mode: str
+    status: str
+    ended_at: Optional[str]
+    end_reason: str
+    end_detail: str
     created_at: str
     updated_at: str
     last_message_at: Optional[str]

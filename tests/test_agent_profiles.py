@@ -5,17 +5,43 @@ import tempfile
 import unittest
 from pathlib import Path
 import sqlite3
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE  # noqa: E402
-from livekit_sales_agent.config import load_agent_profile_settings  # noqa: E402
+from livekit_sales_agent.defaults import (  # noqa: E402
+    DEFAULT_IDLE_GOODBYE_MESSAGE,
+    DEFAULT_IDLE_REMINDER_MESSAGE,
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_IDLE_REMINDERS,
+    DEFAULT_OPENING_MESSAGE,
+)
+from livekit_sales_agent.config import Settings, load_agent_profile_settings  # noqa: E402
 from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
 
 
 class AgentProfileTest(unittest.TestCase):
+    def test_settings_parse_fallback_profile_ids(self) -> None:
+        previous_stt = os.environ.get("STT_FALLBACK_PROFILE_IDS")
+        previous_tts = os.environ.get("TTS_FALLBACK_PROFILE_IDS")
+        try:
+            os.environ["STT_FALLBACK_PROFILE_IDS"] = " stt-a,stt-b,stt-a ,, "
+            os.environ["TTS_FALLBACK_PROFILE_IDS"] = "tts-a, tts-b"
+            settings = Settings.from_env()
+            self.assertEqual(settings.stt_fallback_profile_ids, ["stt-a", "stt-b"])
+            self.assertEqual(settings.tts_fallback_profile_ids, ["tts-a", "tts-b"])
+        finally:
+            if previous_stt is None:
+                os.environ.pop("STT_FALLBACK_PROFILE_IDS", None)
+            else:
+                os.environ["STT_FALLBACK_PROFILE_IDS"] = previous_stt
+            if previous_tts is None:
+                os.environ.pop("TTS_FALLBACK_PROFILE_IDS", None)
+            else:
+                os.environ["TTS_FALLBACK_PROFILE_IDS"] = previous_tts
+
     def test_agent_profile_can_override_model_and_bind_multiple_kbs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -79,6 +105,10 @@ class AgentProfileTest(unittest.TestCase):
                 name="售前顾问",
                 description="负责售前咨询",
                 opening_message="你好，我是售前顾问，先和你确认下你的采购需求。",
+                idle_timeout_seconds=12.0,
+                max_idle_reminders=2,
+                idle_reminder_message="喂，您还在吗？我想先确认一下您的需求。",
+                idle_goodbye_message="我先不打扰您了，您方便的时候我们再继续聊。",
                 system_prompt="你是售前顾问",
                 fallback_prompt="当资料不足时，引导用户补充需求。",
                 chat_model_profile_id=custom_model.id,
@@ -100,6 +130,10 @@ class AgentProfileTest(unittest.TestCase):
             self.assertEqual(resolved.retrieval_top_k, 7)
             self.assertEqual(resolved.knowledge_base_ids, [kb_one.id, kb_two.id])
             self.assertEqual(resolved.opening_message, "你好，我是售前顾问，先和你确认下你的采购需求。")
+            self.assertEqual(resolved.idle_timeout_seconds, 12.0)
+            self.assertEqual(resolved.max_idle_reminders, 2)
+            self.assertEqual(resolved.idle_reminder_message, "喂，您还在吗？我想先确认一下您的需求。")
+            self.assertEqual(resolved.idle_goodbye_message, "我先不打扰您了，您方便的时候我们再继续聊。")
             self.assertEqual(resolved.chat_model.model, custom_model.model)
             self.assertTrue(resolved.chat_model.is_deepseek_v4)
 
@@ -167,12 +201,29 @@ class AgentProfileTest(unittest.TestCase):
                     row["name"] for row in migrated.execute("PRAGMA table_info(agent_profiles)").fetchall()
                 }
                 self.assertIn("opening_message", columns)
+                self.assertIn("idle_timeout_seconds", columns)
+                self.assertIn("max_idle_reminders", columns)
+                self.assertIn("idle_reminder_message", columns)
+                self.assertIn("idle_goodbye_message", columns)
                 row = migrated.execute(
-                    "SELECT opening_message FROM agent_profiles WHERE id = ?",
+                    """
+                    SELECT
+                        opening_message,
+                        idle_timeout_seconds,
+                        max_idle_reminders,
+                        idle_reminder_message,
+                        idle_goodbye_message
+                    FROM agent_profiles
+                    WHERE id = ?
+                    """,
                     ("agent-1",),
                 ).fetchone()
                 self.assertIsNotNone(row)
                 self.assertEqual(row["opening_message"], DEFAULT_OPENING_MESSAGE)
+                self.assertEqual(row["idle_timeout_seconds"], DEFAULT_IDLE_TIMEOUT_SECONDS)
+                self.assertEqual(row["max_idle_reminders"], DEFAULT_MAX_IDLE_REMINDERS)
+                self.assertEqual(row["idle_reminder_message"], DEFAULT_IDLE_REMINDER_MESSAGE)
+                self.assertEqual(row["idle_goodbye_message"], DEFAULT_IDLE_GOODBYE_MESSAGE)
             finally:
                 migrated.close()
 

@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE
+from livekit_sales_agent.defaults import (
+    DEFAULT_IDLE_GOODBYE_MESSAGE,
+    DEFAULT_IDLE_REMINDER_MESSAGE,
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_IDLE_REMINDERS,
+    DEFAULT_OPENING_MESSAGE,
+)
 from livekit_sales_agent.knowledge.db import connect
 from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository
 
@@ -18,6 +24,18 @@ def _default_kb_data_dir() -> Path:
     return Path(__file__).resolve().parents[2] / ".data" / "kb"
 
 
+def _parse_id_list(raw_value: str) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for part in raw_value.split(","):
+        value = part.strip()
+        if not value or value in seen:
+            continue
+        values.append(value)
+        seen.add(value)
+    return values
+
+
 @dataclass
 class Settings:
     agent_name: str
@@ -25,6 +43,8 @@ class Settings:
     kb_data_dir: Path
     kb_top_k: int
     price_stale_after_days: int
+    stt_fallback_profile_ids: list[str]
+    tts_fallback_profile_ids: list[str]
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -41,6 +61,8 @@ class Settings:
             kb_data_dir=kb_data_dir,
             kb_top_k=int(os.getenv("KB_TOP_K", "3")),
             price_stale_after_days=int(os.getenv("PRICE_STALE_AFTER_DAYS", "3")),
+            stt_fallback_profile_ids=_parse_id_list(os.getenv("STT_FALLBACK_PROFILE_IDS", "")),
+            tts_fallback_profile_ids=_parse_id_list(os.getenv("TTS_FALLBACK_PROFILE_IDS", "")),
         )
 
     def validate(self) -> None:
@@ -102,6 +124,10 @@ class AgentProfileSettings:
     name: str
     description: str
     opening_message: str
+    idle_timeout_seconds: float
+    max_idle_reminders: int
+    idle_reminder_message: str
+    idle_goodbye_message: str
     system_prompt: str
     fallback_prompt: str
     retrieval_top_k: int
@@ -151,6 +177,10 @@ def load_agent_profile_settings(
                 name="系统默认智能体",
                 description="",
                 opening_message=DEFAULT_OPENING_MESSAGE,
+                idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
+                max_idle_reminders=DEFAULT_MAX_IDLE_REMINDERS,
+                idle_reminder_message=DEFAULT_IDLE_REMINDER_MESSAGE,
+                idle_goodbye_message=DEFAULT_IDLE_GOODBYE_MESSAGE,
                 system_prompt="",
                 fallback_prompt="",
                 retrieval_top_k=default_retrieval_top_k,
@@ -171,6 +201,10 @@ def load_agent_profile_settings(
             name=profile.name,
             description=profile.description,
             opening_message=profile.opening_message,
+            idle_timeout_seconds=max(0.0, float(profile.idle_timeout_seconds)),
+            max_idle_reminders=max(0, int(profile.max_idle_reminders)),
+            idle_reminder_message=profile.idle_reminder_message or DEFAULT_IDLE_REMINDER_MESSAGE,
+            idle_goodbye_message=profile.idle_goodbye_message or DEFAULT_IDLE_GOODBYE_MESSAGE,
             system_prompt=profile.system_prompt,
             fallback_prompt=profile.fallback_prompt,
             retrieval_top_k=profile.retrieval_top_k,
@@ -179,11 +213,7 @@ def load_agent_profile_settings(
         )
 
 
-def load_stt_model_settings(db_path: Path) -> Optional[SttModelSettings]:
-    with connect(db_path) as conn:
-        repo = KnowledgeBaseRepository(conn)
-        record = repo.get_default_stt_model_profile()
-
+def _stt_model_settings_from_record(record) -> Optional[SttModelSettings]:
     if record is None:
         return None
     if not record.provider:
@@ -209,11 +239,27 @@ def load_stt_model_settings(db_path: Path) -> Optional[SttModelSettings]:
     )
 
 
-def load_tts_model_settings(db_path: Path) -> Optional[TtsModelSettings]:
+def load_stt_model_settings(db_path: Path, *, profile_id: Optional[str] = None) -> Optional[SttModelSettings]:
     with connect(db_path) as conn:
         repo = KnowledgeBaseRepository(conn)
-        record = repo.get_default_tts_model_profile()
+        record = repo.get_stt_model_profile(profile_id) if profile_id else repo.get_default_stt_model_profile()
+    return _stt_model_settings_from_record(record)
 
+
+def load_stt_fallback_model_settings(
+    db_path: Path,
+    *,
+    profile_ids: list[str],
+) -> list[SttModelSettings]:
+    loaded: list[SttModelSettings] = []
+    for profile_id in profile_ids:
+        settings = load_stt_model_settings(db_path, profile_id=profile_id)
+        if settings is not None:
+            loaded.append(settings)
+    return loaded
+
+
+def _tts_model_settings_from_record(record) -> Optional[TtsModelSettings]:
     if record is None:
         return None
     if not record.provider:
@@ -244,3 +290,23 @@ def load_tts_model_settings(db_path: Path) -> Optional[TtsModelSettings]:
         volume_ratio=record.volume_ratio,
         pitch_ratio=record.pitch_ratio,
     )
+
+
+def load_tts_model_settings(db_path: Path, *, profile_id: Optional[str] = None) -> Optional[TtsModelSettings]:
+    with connect(db_path) as conn:
+        repo = KnowledgeBaseRepository(conn)
+        record = repo.get_tts_model_profile(profile_id) if profile_id else repo.get_default_tts_model_profile()
+    return _tts_model_settings_from_record(record)
+
+
+def load_tts_fallback_model_settings(
+    db_path: Path,
+    *,
+    profile_ids: list[str],
+) -> list[TtsModelSettings]:
+    loaded: list[TtsModelSettings] = []
+    for profile_id in profile_ids:
+        settings = load_tts_model_settings(db_path, profile_id=profile_id)
+        if settings is not None:
+            loaded.append(settings)
+    return loaded

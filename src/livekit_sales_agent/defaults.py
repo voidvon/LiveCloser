@@ -20,3 +20,12 @@ DEFAULT_FALLBACK_PROMPT = (
 DEFAULT_OPENING_MESSAGE = (
     "你好，我是你的 AI 销售助理。我可以介绍产品、套餐、标准价格和购买流程。你可以直接问我具体需求。"
 )
+
+DEFAULT_IDLE_TIMEOUT_SECONDS = 10.0
+DEFAULT_MAX_IDLE_REMINDERS = 1
+DEFAULT_IDLE_REMINDER_MESSAGE = (
+    "喂，您还在吗？如果现在方便，我可以先简单了解一下您的需求。"
+)
+DEFAULT_IDLE_GOODBYE_MESSAGE = (
+    "看起来您现在可能不太方便，我先不打扰您了。您方便的时候，我们再继续聊。"
+)

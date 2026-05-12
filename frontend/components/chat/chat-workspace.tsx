@@ -95,6 +95,61 @@ async function deleteJson(url: string): Promise<void> {
   }
 }
 
+function getConversationStatusMeta(conversation: ConversationRecord): {
+  label: string;
+  tone: 'muted' | 'warning' | 'danger';
+  detail: string;
+} | null {
+  if (conversation.status !== 'ended') {
+    return null;
+  }
+
+  if (conversation.end_reason === 'away_timeout') {
+    return {
+      label: '无人应答结束',
+      tone: 'warning',
+      detail: '对方长时间未回应，系统已自动收尾结束本次通话。',
+    };
+  }
+  if (conversation.end_reason === 'user_disconnect') {
+    return {
+      label: '用户已断开',
+      tone: 'muted',
+      detail: '对方已主动断开当前会话。',
+    };
+  }
+  if (conversation.end_reason === 'session_error') {
+    return {
+      label: '会话异常结束',
+      tone: 'danger',
+      detail: conversation.end_detail || '会话因为底层异常中断。',
+    };
+  }
+  if (conversation.end_reason === 'completed') {
+    return {
+      label: '会话已结束',
+      tone: 'muted',
+      detail: '本次会话已正常结束。',
+    };
+  }
+
+  return {
+    label: '已结束',
+    tone: 'muted',
+    detail: conversation.end_detail || conversation.end_reason || '本次会话已结束。',
+  };
+}
+
+function getConversationStatusBadgeClass(tone: 'muted' | 'warning' | 'danger'): string {
+  if (tone === 'warning') {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200';
+  }
+  if (tone === 'danger') {
+    return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200';
+  }
+  return 'border-border/70 bg-background/70 text-muted-foreground';
+}
+
 type ContextMenuState = {
   conversationId: string;
   x: number;
@@ -445,6 +500,17 @@ export function ChatWorkspace({
         : null,
     [contextMenu, conversations]
   );
+  const displayedConversation = useMemo(
+    () =>
+      displayedConversationId
+        ? (conversations.find((item) => item.id === displayedConversationId) ?? null)
+        : null,
+    [conversations, displayedConversationId]
+  );
+  const displayedConversationStatus = useMemo(
+    () => (displayedConversation ? getConversationStatusMeta(displayedConversation) : null),
+    [displayedConversation]
+  );
 
   return (
     <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
@@ -527,8 +593,9 @@ export function ChatWorkspace({
                 还没有历史会话。先新建一个会话，再选择消息或语音方式开始。
               </Surface>
             ) : (
-              conversations.map((conversation) =>
-                renamingConversationId === conversation.id ? (
+              conversations.map((conversation) => {
+                const statusMeta = getConversationStatusMeta(conversation);
+                return renamingConversationId === conversation.id ? (
                   <InteractiveCard
                     key={conversation.id}
                     variant={activeConversationId === conversation.id ? 'selected' : 'default'}
@@ -606,7 +673,19 @@ export function ChatWorkspace({
                       sessionActive && 'cursor-not-allowed opacity-60'
                     )}
                   >
-                    <p className="truncate font-medium">{conversation.title}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 truncate font-medium">{conversation.title}</p>
+                      {statusMeta ? (
+                        <span
+                          className={cn(
+                            'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em]',
+                            getConversationStatusBadgeClass(statusMeta.tone)
+                          )}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      ) : null}
+                    </div>
                     <p
                       className={cn(
                         'mt-2 line-clamp-2 text-xs leading-5',
@@ -618,14 +697,44 @@ export function ChatWorkspace({
                       {conversation.last_message_preview || '还没有消息'}
                     </p>
                   </InteractiveCard>
-                )
-              )
+                );
+              })
             )}
           </div>
         </div>
       </Surface>
 
       <Surface className="flex min-h-0 flex-1 flex-col overflow-hidden" variant="panel">
+        {displayedConversation ? (
+          <div className="border-border/70 border-b px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {displayedConversationTitle || displayedConversation.title}
+                </p>
+                {displayedConversationStatus ? (
+                  <p className="text-muted-foreground mt-1 text-xs leading-5">
+                    {displayedConversationStatus.detail}
+                  </p>
+                ) : displayedConversation.last_message_at ? (
+                  <p className="text-muted-foreground mt-1 text-xs leading-5">
+                    最近一条消息已同步到当前会话记录。
+                  </p>
+                ) : null}
+              </div>
+              {displayedConversationStatus ? (
+                <span
+                  className={cn(
+                    'shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-[0.08em]',
+                    getConversationStatusBadgeClass(displayedConversationStatus.tone)
+                  )}
+                >
+                  {displayedConversationStatus.label}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <AgentSessionView_01
           {...sessionViewConfig}
           initialChatOpen

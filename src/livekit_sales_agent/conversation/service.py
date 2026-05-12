@@ -52,6 +52,10 @@ class ConversationService:
         knowledge_base_id: Optional[str] | object = _UNSET,
         agent_profile_id: Optional[str] | object = _UNSET,
         last_mode: str | object = _UNSET,
+        status: str | object = _UNSET,
+        ended_at: Optional[str] | object = _UNSET,
+        end_reason: str | object = _UNSET,
+        end_detail: str | object = _UNSET,
     ):
         with connect(self._db_path) as conn:
             repo = ConversationRepository(conn)
@@ -61,6 +65,10 @@ class ConversationService:
                 knowledge_base_id=knowledge_base_id,
                 agent_profile_id=agent_profile_id,
                 last_mode=last_mode,
+                status=status,
+                ended_at=ended_at,
+                end_reason=end_reason,
+                end_detail=end_detail,
             )
 
     def delete_conversation(self, conversation_id: str) -> bool:
@@ -85,12 +93,20 @@ class ConversationService:
                         record.knowledge_base_id != knowledge_base_id
                         or record.agent_profile_id != agent_profile_id
                         or record.last_mode != last_mode
+                        or record.status != "active"
+                        or record.ended_at is not None
+                        or record.end_reason
+                        or record.end_detail
                     ):
                         record = repo.update_conversation(
                             conversation_id,
                             knowledge_base_id=knowledge_base_id,
                             agent_profile_id=agent_profile_id,
                             last_mode=last_mode,
+                            status="active",
+                            ended_at=None,
+                            end_reason="",
+                            end_detail="",
                         )
                     return record
             return repo.create_conversation(
@@ -122,6 +138,21 @@ class ConversationService:
                 content=content,
                 source_mode=source_mode,
                 external_message_id=external_message_id,
+            )
+
+    def end_conversation(
+        self,
+        conversation_id: str,
+        *,
+        reason: str,
+        detail: str = "",
+    ):
+        with connect(self._db_path) as conn:
+            repo = ConversationRepository(conn)
+            return repo.end_conversation(
+                conversation_id,
+                reason=reason,
+                detail=detail,
             )
 
     def build_chat_context(self, conversation_id: str) -> ChatContext:

@@ -7,10 +7,7 @@ from livekit_sales_agent.adapters.doubao_tts import DoubaoTTS, DoubaoTtsConfig
 from livekit_sales_agent.config import SttModelSettings, TtsModelSettings
 
 
-def build_stt(profile: SttModelSettings | None) -> stt.STT | None:
-    if profile is None:
-        return None
-
+def _create_stt(profile: SttModelSettings) -> stt.STT:
     provider = profile.provider.strip().lower()
     if provider == "doubao":
         return DoubaoSTT(
@@ -29,10 +26,30 @@ def build_stt(profile: SttModelSettings | None) -> stt.STT | None:
     raise ValueError(f"Unsupported STT provider: {profile.provider}")
 
 
-def build_tts(profile: TtsModelSettings | None) -> tts.TTS | None:
+def build_stt(
+    profile: SttModelSettings | None,
+    *,
+    fallback_profiles: list[SttModelSettings] | None = None,
+) -> stt.STT | None:
     if profile is None:
         return None
 
+    stt_instances = [_create_stt(profile)]
+    for fallback_profile in fallback_profiles or []:
+        stt_instances.append(_create_stt(fallback_profile))
+
+    if len(stt_instances) == 1:
+        return stt_instances[0]
+
+    return stt.FallbackAdapter(
+        stt=stt_instances,
+        attempt_timeout=8.0,
+        max_retry_per_stt=1,
+        retry_interval=2.0,
+    )
+
+
+def _create_tts(profile: TtsModelSettings) -> tts.TTS:
     provider = profile.provider.strip().lower()
     if provider == "doubao":
         return DoubaoTTS(
@@ -54,3 +71,25 @@ def build_tts(profile: TtsModelSettings | None) -> tts.TTS | None:
         )
 
     raise ValueError(f"Unsupported TTS provider: {profile.provider}")
+
+
+def build_tts(
+    profile: TtsModelSettings | None,
+    *,
+    fallback_profiles: list[TtsModelSettings] | None = None,
+) -> tts.TTS | None:
+    if profile is None:
+        return None
+
+    tts_instances = [_create_tts(profile)]
+    for fallback_profile in fallback_profiles or []:
+        tts_instances.append(_create_tts(fallback_profile))
+
+    if len(tts_instances) == 1:
+        return tts_instances[0]
+
+    return tts.FallbackAdapter(
+        tts=tts_instances,
+        max_retry_per_tts=1,
+        sample_rate=profile.sample_rate,
+    )

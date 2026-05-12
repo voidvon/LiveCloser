@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -26,7 +27,9 @@ from livekit_sales_agent.config import (
     AgentProfileSettings,
     Settings,
     load_agent_profile_settings,
+    load_stt_fallback_model_settings,
     load_stt_model_settings,
+    load_tts_fallback_model_settings,
     load_tts_model_settings,
 )
 from livekit_sales_agent.knowledge.db import ensure_database
@@ -58,6 +61,110 @@ class SessionMetadata:
     @property
     def is_text_mode(self) -> bool:
         return self.session_mode == "text"
+
+
+class IdleCallController:
+    def __init__(
+        self,
+        session: AgentSession,
+        metadata: SessionMetadata,
+        agent_profile: AgentProfileSettings,
+    ) -> None:
+        self._session = session
+        self._metadata = metadata
+        self._agent_profile = agent_profile
+        self._away_count = 0
+        self._pending_task: asyncio.Task[None] | None = None
+        self.closed_by_idle = False
+
+    @property
+    def enabled(self) -> bool:
+        return (
+            not self._metadata.is_text_mode
+            and self._agent_profile.idle_timeout_seconds > 0
+        )
+
+    def on_user_speaking(self) -> None:
+        if not self.enabled:
+            return
+        self._away_count = 0
+        self._cancel_pending_task()
+        if self.closed_by_idle:
+            logger.info(
+                "user resumed speaking while idle close was pending",
+                extra={"conversation_id": self._metadata.conversation_id},
+            )
+            self.closed_by_idle = False
+
+    def on_user_away(self) -> None:
+        if not self.enabled:
+            return
+        if self._pending_task is not None and not self._pending_task.done():
+            return
+
+        self._away_count += 1
+        is_final_attempt = self._away_count > self._agent_profile.max_idle_reminders
+        task_name = "idle-close" if is_final_attempt else "idle-reminder"
+        self._pending_task = asyncio.create_task(
+            self._handle_idle_transition(is_final_attempt=is_final_attempt),
+            name=f"{task_name}-{self._metadata.conversation_id or 'session'}",
+        )
+
+    def cancel(self) -> None:
+        self._cancel_pending_task()
+
+    def _cancel_pending_task(self) -> None:
+        if self._pending_task is None or self._pending_task.done():
+            return
+        self._pending_task.cancel()
+
+    async def _handle_idle_transition(self, *, is_final_attempt: bool) -> None:
+        try:
+            if is_final_attempt:
+                self.closed_by_idle = True
+                message = self._agent_profile.idle_goodbye_message.strip()
+            else:
+                message = self._agent_profile.idle_reminder_message.strip()
+
+            if message:
+                await self._say_and_wait(message)
+
+            if is_final_attempt:
+                logger.info(
+                    "closing session after repeated idle timeouts",
+                    extra={
+                        "conversation_id": self._metadata.conversation_id,
+                        "idle_timeout_seconds": self._agent_profile.idle_timeout_seconds,
+                        "away_count": self._away_count,
+                    },
+                )
+                await self._session.aclose()
+        except asyncio.CancelledError:
+            if is_final_attempt:
+                self.closed_by_idle = False
+            raise
+        except Exception:
+            if is_final_attempt:
+                self.closed_by_idle = False
+            logger.exception(
+                "idle call handling failed",
+                extra={"conversation_id": self._metadata.conversation_id},
+            )
+        finally:
+            current_task = asyncio.current_task()
+            if self._pending_task is current_task:
+                self._pending_task = None
+
+    async def _say_and_wait(self, message: str) -> None:
+        handle = self._session.say(message, add_to_chat_ctx=True)
+        wait_for_playout = getattr(handle, "wait_for_playout", None)
+        if callable(wait_for_playout):
+            await wait_for_playout()
+            return
+        if hasattr(handle, "__await__"):
+            await handle
+            return
+        await asyncio.sleep(0)
 
 
 def prewarm(proc: JobProcess) -> None:
@@ -266,13 +373,29 @@ def build_session(
     proc: JobProcess,
     metadata: SessionMetadata,
     agent_profile: AgentProfileSettings,
-) -> tuple[AgentSession, bool, bool]:
+) -> tuple[AgentSession, object | None, object | None]:
     settings.validate()
     db_path = settings.kb_data_dir / "app.db"
     stt_profile = None if metadata.is_text_mode else load_stt_model_settings(db_path)
     tts_profile = None if metadata.is_text_mode else load_tts_model_settings(db_path)
-    stt_impl = build_stt(stt_profile)
-    tts_impl = build_tts(tts_profile)
+    stt_fallback_profiles = (
+        []
+        if metadata.is_text_mode
+        else load_stt_fallback_model_settings(
+            db_path,
+            profile_ids=settings.stt_fallback_profile_ids,
+        )
+    )
+    tts_fallback_profiles = (
+        []
+        if metadata.is_text_mode
+        else load_tts_fallback_model_settings(
+            db_path,
+            profile_ids=settings.tts_fallback_profile_ids,
+        )
+    )
+    stt_impl = build_stt(stt_profile, fallback_profiles=stt_fallback_profiles)
+    tts_impl = build_tts(tts_profile, fallback_profiles=tts_fallback_profiles)
     llm_kwargs: dict[str, Any] = {
         "model": agent_profile.chat_model.model,
         "base_url": agent_profile.chat_model.base_url,
@@ -286,13 +409,28 @@ def build_session(
     session_kwargs: dict[str, Any] = {
         "vad": proc.userdata["vad"],
         "llm": openai.LLM(**llm_kwargs),
-        "turn_handling": {"turn_detection": "vad"},
+        "turn_handling": {
+            "turn_detection": "vad",
+            "endpointing": {
+                "mode": "dynamic",
+                "min_delay": 0.4,
+                "max_delay": 1.2,
+            },
+            "interruption": {
+                "mode": "vad",
+                "min_duration": 0.4,
+                "min_words": 1,
+                "resume_false_interruption": True,
+            },
+        },
     }
+    if not metadata.is_text_mode and agent_profile.idle_timeout_seconds > 0:
+        session_kwargs["user_away_timeout"] = agent_profile.idle_timeout_seconds
     if stt_impl is not None:
         session_kwargs["stt"] = stt_impl
     if tts_impl is not None:
         session_kwargs["tts"] = tts_impl
-    return AgentSession(**session_kwargs), stt_impl is not None, tts_impl is not None
+    return AgentSession(**session_kwargs), stt_impl, tts_impl
 
 
 async def handle_text_input(
@@ -371,6 +509,41 @@ def _optional_str(value: object) -> Optional[str]:
     return text or None
 
 
+def _normalize_state_name(value: object) -> str:
+    if value is None:
+        return ""
+    candidate = getattr(value, "value", None)
+    if isinstance(candidate, str) and candidate:
+        return candidate.lower()
+    candidate = getattr(value, "name", None)
+    if isinstance(candidate, str) and candidate:
+        return candidate.lower()
+    normalized = str(value).strip().lower()
+    if "." in normalized:
+        normalized = normalized.rsplit(".", 1)[-1]
+    return normalized
+
+
+def _resolve_conversation_end_state(
+    *,
+    close_reason: object,
+    error: object,
+    closed_by_idle: bool,
+) -> tuple[str, str]:
+    if closed_by_idle:
+        return "away_timeout", ""
+
+    if error is not None:
+        return "session_error", repr(error)
+
+    normalized_reason = _normalize_state_name(close_reason)
+    if normalized_reason in {"participant_disconnected", "user_disconnected", "disconnected"}:
+        return "user_disconnect", normalized_reason
+    if normalized_reason:
+        return normalized_reason, normalized_reason
+    return "completed", ""
+
+
 @server.rtc_session(agent_name=settings.agent_name)
 async def entrypoint(ctx: JobContext) -> None:
     raw_metadata = _extract_agent_metadata(ctx)
@@ -400,9 +573,54 @@ async def entrypoint(ctx: JobContext) -> None:
             "job_metadata": job_metadata,
         },
     )
-    session, has_stt, has_tts = build_session(ctx.proc, metadata, resolved_agent_profile)
+    session, stt_impl, tts_impl = build_session(ctx.proc, metadata, resolved_agent_profile)
+    has_stt = stt_impl is not None
+    has_tts = tts_impl is not None
     agent = SalesAgent(settings, metadata, resolved_agent_profile, has_tts=has_tts)
+    idle_controller = IdleCallController(session, metadata, resolved_agent_profile)
     await agent.restore_history()
+
+    if hasattr(stt_impl, "on"):
+        @stt_impl.on("stt_availability_changed")
+        def _handle_stt_availability_changed(event) -> None:
+            stt_instance = getattr(event, "stt", None)
+            logger.warning(
+                "stt availability changed",
+                extra={
+                    "conversation_id": metadata.conversation_id,
+                    "available": getattr(event, "available", None),
+                    "stt_label": getattr(stt_instance, "label", type(stt_instance).__name__),
+                },
+            )
+
+    if hasattr(tts_impl, "on"):
+        @tts_impl.on("tts_availability_changed")
+        def _handle_tts_availability_changed(event) -> None:
+            tts_instance = getattr(event, "tts", None)
+            logger.warning(
+                "tts availability changed",
+                extra={
+                    "conversation_id": metadata.conversation_id,
+                    "available": getattr(event, "available", None),
+                    "tts_label": getattr(tts_instance, "label", type(tts_instance).__name__),
+                },
+            )
+
+    @session.on("user_state_changed")
+    def _handle_user_state_changed(event) -> None:
+        state_name = _normalize_state_name(getattr(event, "new_state", None))
+        if state_name == "speaking":
+            idle_controller.on_user_speaking()
+            return
+        if state_name == "away":
+            idle_controller.on_user_away()
+
+    @session.on("user_input_transcribed")
+    def _handle_user_input_transcribed(event) -> None:
+        transcript = str(getattr(event, "transcript", "") or "").strip()
+        if not transcript or not bool(getattr(event, "is_final", False)):
+            return
+        idle_controller.on_user_speaking()
 
     @session.on("conversation_item_added")
     def _handle_conversation_item_added(event) -> None:
@@ -414,6 +632,8 @@ async def entrypoint(ctx: JobContext) -> None:
         content = (item.text_content or "").strip()
         if not content:
             return
+        if item.role == "user":
+            idle_controller.on_user_speaking()
         if not metadata.conversation_id:
             return
         conversation_service.append_message(
@@ -422,6 +642,46 @@ async def entrypoint(ctx: JobContext) -> None:
             content=content,
             source_mode=metadata.session_mode,
             external_message_id=item.id,
+        )
+
+    @session.on("close")
+    def _handle_close(event) -> None:
+        idle_controller.cancel()
+        close_reason = getattr(event, "reason", None)
+        error = getattr(event, "error", None)
+        end_reason, end_detail = _resolve_conversation_end_state(
+            close_reason=close_reason,
+            error=error,
+            closed_by_idle=idle_controller.closed_by_idle,
+        )
+        if metadata.conversation_id:
+            conversation_service.end_conversation(
+                metadata.conversation_id,
+                reason=end_reason,
+                detail=end_detail,
+            )
+        logger.info(
+            "agent session closed",
+            extra={
+                "conversation_id": metadata.conversation_id,
+                "close_reason": _normalize_state_name(close_reason),
+                "closed_by_idle": idle_controller.closed_by_idle,
+                "end_reason": end_reason,
+                "error": repr(error),
+            },
+        )
+
+    @session.on("error")
+    def _handle_error(event) -> None:
+        error = getattr(event, "error", None)
+        logger.warning(
+            "agent session error",
+            extra={
+                "conversation_id": metadata.conversation_id,
+                "source": type(getattr(event, "source", None)).__name__,
+                "recoverable": getattr(error, "recoverable", None),
+                "error": repr(error),
+            },
         )
 
     room_options = room_io.RoomOptions(
