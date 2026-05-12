@@ -107,6 +107,7 @@ class ConversationContextTest(unittest.TestCase):
             agent = knowledge_service.create_agent_profile(
                 name="默认顾问",
                 description="",
+                opening_message="你好，我是默认顾问。",
                 system_prompt="",
                 fallback_prompt="",
                 chat_model_profile_id=chat_model.id,

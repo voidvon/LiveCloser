@@ -4,6 +4,8 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
+from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE
+
 from .schema import SCHEMA_STATEMENTS
 
 
@@ -56,10 +58,18 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="agent_profile_id",
         column_sql="TEXT",
     )
+    added_opening_message = _ensure_column(
+        conn,
+        table_name="agent_profiles",
+        column_name="opening_message",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_embedding_profile_id ON knowledge_bases(embedding_profile_id)"
     )
     _backfill_embedding_profiles(conn)
+    if added_opening_message:
+        _backfill_agent_profile_opening_messages(conn)
 
 
 def _ensure_column(
@@ -68,12 +78,13 @@ def _ensure_column(
     table_name: str,
     column_name: str,
     column_sql: str,
-) -> None:
+) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     existing = {row["name"] for row in rows}
     if column_name in existing:
-        return
+        return False
     conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+    return True
 
 
 def _backfill_embedding_profiles(conn: sqlite3.Connection) -> None:
@@ -162,3 +173,10 @@ def _backfill_embedding_profiles(conn: sqlite3.Connection) -> None:
             "UPDATE knowledge_bases SET embedding_profile_id = ? WHERE id = ?",
             (profile_id, kb["id"]),
         )
+
+
+def _backfill_agent_profile_opening_messages(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "UPDATE agent_profiles SET opening_message = ? WHERE opening_message = ''",
+        (DEFAULT_OPENING_MESSAGE,),
+    )

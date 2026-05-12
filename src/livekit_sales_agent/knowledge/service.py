@@ -7,14 +7,22 @@ from typing import Optional
 from .db import connect
 from .jobs import JobRunner
 from .retrieval import RetrievalService
+from .chroma_store import ChromaStore
 from .repositories import KnowledgeBaseRepository
-from .storage import save_uploaded_file
+from .storage import (
+    is_editable_text_file_name,
+    normalize_file_name,
+    read_text_file,
+    save_uploaded_file,
+    write_text_file,
+)
 
 
 class KnowledgeService:
     def __init__(self, *, db_path: Path, files_root: Path, chroma_root: Path):
         self._db_path = db_path
         self._files_root = files_root
+        self._chroma_store = ChromaStore(root_dir=chroma_root)
         self._job_runner = JobRunner(db_path=db_path, chroma_root=chroma_root)
         self._retrieval_service = RetrievalService(db_path=db_path, chroma_root=chroma_root)
 
@@ -43,6 +51,22 @@ class KnowledgeService:
             raise ValueError(f"{field_name}不存在")
         if category.kb_id != kb_id:
             raise ValueError(f"{field_name}不属于当前知识库")
+
+    @staticmethod
+    def _get_file_for_kb(
+        repo: KnowledgeBaseRepository, *, kb_id: str, file_id: str
+    ):
+        file_record = repo.get_file(file_id)
+        if file_record is None or file_record.kb_id != kb_id:
+            return None
+        return file_record
+
+    @staticmethod
+    def _resolve_text_mime_type(file_name: str) -> str:
+        suffix = Path(file_name).suffix.lower()
+        if suffix in {".md", ".markdown"}:
+            return "text/markdown"
+        return "text/plain"
 
     def list_chat_model_profiles(self):
         with connect(self._db_path) as conn:
@@ -87,6 +111,7 @@ class KnowledgeService:
         *,
         name: str,
         description: str,
+        opening_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -107,6 +132,7 @@ class KnowledgeService:
                 return repo.create_agent_profile(
                     name=name,
                     description=description,
+                    opening_message=opening_message,
                     system_prompt=system_prompt,
                     fallback_prompt=fallback_prompt,
                     chat_model_profile_id=chat_model_profile_id,
@@ -123,6 +149,7 @@ class KnowledgeService:
         *,
         name: str,
         description: str,
+        opening_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -144,6 +171,7 @@ class KnowledgeService:
                     profile_id,
                     name=name,
                     description=description,
+                    opening_message=opening_message,
                     system_prompt=system_prompt,
                     fallback_prompt=fallback_prompt,
                     chat_model_profile_id=chat_model_profile_id,
@@ -544,6 +572,17 @@ class KnowledgeService:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_files(kb_id)
 
+    def get_file_detail(self, *, kb_id: str, file_id: str):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            file_record = self._get_file_for_kb(repo, kb_id=kb_id, file_id=file_id)
+            if file_record is None:
+                return None
+            if not is_editable_text_file_name(file_record.original_name):
+                raise ValueError("仅支持编辑 txt 或 md 文档")
+            content = read_text_file(Path(file_record.stored_path))
+            return file_record, content
+
     def upload_file(
         self,
         *,
@@ -587,12 +626,121 @@ class KnowledgeService:
         self._job_runner.start_embed_job(job_id=job_record.id)
         return file_record, job_record
 
-    def delete_file(self, file_id: str) -> bool:
+    def update_text_file(
+        self,
+        *,
+        kb_id: str,
+        file_id: str,
+        original_name: str,
+        content: str,
+    ):
+        return self.update_file(
+            kb_id=kb_id,
+            file_id=file_id,
+            original_name=original_name,
+            content=content,
+        )
+
+    def update_file(
+        self,
+        *,
+        kb_id: str,
+        file_id: str,
+        original_name: Optional[str] = None,
+        content: Optional[str] = None,
+        category_id: Optional[str] = None,
+        update_category: bool = False,
+    ):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
-            record = repo.get_file(file_id)
+            file_record = self._get_file_for_kb(repo, kb_id=kb_id, file_id=file_id)
+            if file_record is None:
+                return None, None
+            if update_category:
+                self._validate_category_belongs_to_kb(
+                    repo,
+                    kb_id=kb_id,
+                    category_id=category_id,
+                )
+
+        next_category_id = category_id if update_category else file_record.category_id
+        wants_text_update = original_name is not None or content is not None
+        next_original_name = file_record.original_name
+        next_mime_type = file_record.mime_type
+        next_size_bytes = file_record.size_bytes
+        next_content_hash = file_record.content_hash
+
+        if wants_text_update:
+            if not is_editable_text_file_name(file_record.original_name):
+                raise ValueError("仅支持编辑 txt 或 md 文档")
+
+            if original_name is not None:
+                normalized_name = normalize_file_name(original_name)
+                current_suffix = Path(file_record.original_name).suffix.lower()
+                next_suffix = Path(normalized_name).suffix.lower()
+                if current_suffix != next_suffix:
+                    raise ValueError("暂不支持修改文件扩展名")
+                next_original_name = normalized_name
+
+            if content is not None:
+                next_size_bytes, next_content_hash = write_text_file(
+                    Path(file_record.stored_path), content
+                )
+
+            next_mime_type = self._resolve_text_mime_type(next_original_name)
+
+        content_changed = next_content_hash != file_record.content_hash
+        category_changed = next_category_id != file_record.category_id
+        metadata_changed = (
+            next_original_name != file_record.original_name
+            or next_mime_type != file_record.mime_type
+            or next_size_bytes != file_record.size_bytes
+            or next_content_hash != file_record.content_hash
+            or category_changed
+        )
+
+        if not metadata_changed:
+            return file_record, None
+
+        job_record = None
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            updated_file = repo.update_file_metadata(
+                file_id,
+                category_id=next_category_id,
+                original_name=next_original_name,
+                mime_type=next_mime_type,
+                size_bytes=next_size_bytes,
+                content_hash=next_content_hash,
+            )
+            if updated_file is None:
+                return None, None
+            if content_changed or category_changed:
+                updated_file = repo.update_file_status(
+                    file_id, status="queued", last_embedded_at=None
+                )
+                job_record = repo.create_job(
+                    kb_id=kb_id,
+                    file_id=file_id,
+                    job_type="reindex",
+                    status="queued",
+                )
+
+        if job_record is not None:
+            self._job_runner.start_embed_job(job_id=job_record.id)
+
+        return updated_file, job_record
+
+    def delete_file(self, *, kb_id: str, file_id: str) -> bool:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            record = self._get_file_for_kb(repo, kb_id=kb_id, file_id=file_id)
             if record is None:
                 return False
+
+            self._chroma_store.delete_file_chunks(kb_id=record.kb_id, file_id=file_id)
+            repo.delete_chunks_for_file(file_id)
+
             file_path = Path(record.stored_path)
             if file_path.exists():
                 file_path.unlink()
@@ -603,6 +751,12 @@ class KnowledgeService:
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_jobs(kb_id)
+
+    def clear_finished_jobs(self, kb_id: str) -> int:
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            self._ensure_knowledge_base_exists(repo, kb_id)
+            return repo.clear_finished_jobs(kb_id)
 
     def reindex_file(self, *, kb_id: str, file_id: str):
         with connect(self._db_path) as conn:

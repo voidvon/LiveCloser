@@ -51,6 +51,7 @@ class AgentProfileRecord:
     id: str
     name: str
     description: str
+    opening_message: str
     system_prompt: str
     fallback_prompt: str
     chat_model_profile_id: Optional[str]

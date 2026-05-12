@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE
 from livekit_sales_agent.knowledge.db import connect
 from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository
 
@@ -100,6 +101,7 @@ class AgentProfileSettings:
     profile_id: Optional[str]
     name: str
     description: str
+    opening_message: str
     system_prompt: str
     fallback_prompt: str
     retrieval_top_k: int
@@ -148,6 +150,7 @@ def load_agent_profile_settings(
                 profile_id=None,
                 name="系统默认智能体",
                 description="",
+                opening_message=DEFAULT_OPENING_MESSAGE,
                 system_prompt="",
                 fallback_prompt="",
                 retrieval_top_k=default_retrieval_top_k,
@@ -167,6 +170,7 @@ def load_agent_profile_settings(
             profile_id=profile.id,
             name=profile.name,
             description=profile.description,
+            opening_message=profile.opening_message,
             system_prompt=profile.system_prompt,
             fallback_prompt=profile.fallback_prompt,
             retrieval_top_k=profile.retrieval_top_k,

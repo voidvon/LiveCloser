@@ -92,9 +92,12 @@ class SalesAgent(Agent):
     async def on_enter(self) -> None:
         if self._metadata.is_text_mode or not self._has_tts:
             return
+        opening_message = self._agent_profile.opening_message.strip()
+        if not opening_message:
+            return
 
         self.session.say(
-            "你好，我是你的 AI 销售助理。我可以介绍产品、套餐、标准价格和购买流程。你可以直接问我具体需求。",
+            opening_message,
             add_to_chat_ctx=True,
         )
 

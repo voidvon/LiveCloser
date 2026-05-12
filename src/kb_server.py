@@ -69,6 +69,12 @@ class EmbeddingProfilePayload(BaseModel):
     api_key_env: str = ""
 
 
+class FileUpdatePayload(BaseModel):
+    original_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    content: Optional[str] = None
+    category_id: Optional[str] = None
+
+
 class ChatModelProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider: str = "openai_compatible"
@@ -81,6 +87,7 @@ class ChatModelProfilePayload(BaseModel):
 class AgentProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
+    opening_message: str = ""
     system_prompt: str = ""
     fallback_prompt: str = ""
     chat_model_profile_id: Optional[str] = None
@@ -369,10 +376,39 @@ async def upload_file(
     return {"file": file_record, "job": job_record}
 
 
+@app.get("/knowledge-bases/{kb_id}/files/{file_id}")
+def get_file_detail(kb_id: str, file_id: str):
+    try:
+        result = service.get_file_detail(kb_id=kb_id, file_id=file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_record, content = result
+    return {"file": file_record, "content": content}
+
+
+@app.patch("/knowledge-bases/{kb_id}/files/{file_id}")
+def update_file(kb_id: str, file_id: str, payload: FileUpdatePayload):
+    try:
+        file_record, job_record = service.update_file(
+            kb_id=kb_id,
+            file_id=file_id,
+            original_name=payload.original_name,
+            content=payload.content,
+            category_id=payload.category_id,
+            update_category="category_id" in payload.model_fields_set,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if file_record is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"file": file_record, "job": job_record}
+
+
 @app.delete("/knowledge-bases/{kb_id}/files/{file_id}")
 def delete_file(kb_id: str, file_id: str):
-    del kb_id
-    deleted = service.delete_file(file_id)
+    deleted = service.delete_file(kb_id=kb_id, file_id=file_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
     return {"ok": True}
@@ -381,6 +417,15 @@ def delete_file(kb_id: str, file_id: str):
 @app.get("/knowledge-bases/{kb_id}/jobs")
 def list_jobs(kb_id: str):
     return service.list_jobs(kb_id)
+
+
+@app.delete("/knowledge-bases/{kb_id}/jobs")
+def clear_finished_jobs(kb_id: str):
+    try:
+        deleted_count = service.clear_finished_jobs(kb_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 @app.post("/knowledge-bases/{kb_id}/files/{file_id}/embed")

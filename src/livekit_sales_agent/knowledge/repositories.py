@@ -282,6 +282,7 @@ class KnowledgeBaseRepository:
         *,
         name: str,
         description: str,
+        opening_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -297,15 +298,16 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             INSERT INTO agent_profiles (
-                id, name, description, system_prompt, fallback_prompt,
+                id, name, description, opening_message, system_prompt, fallback_prompt,
                 chat_model_profile_id, retrieval_top_k, is_default, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record_id,
                 name,
                 description,
+                opening_message,
                 system_prompt,
                 fallback_prompt,
                 chat_model_profile_id,
@@ -327,6 +329,7 @@ class KnowledgeBaseRepository:
         *,
         name: str,
         description: str,
+        opening_message: str,
         system_prompt: str,
         fallback_prompt: str,
         chat_model_profile_id: Optional[str],
@@ -349,13 +352,14 @@ class KnowledgeBaseRepository:
         self._conn.execute(
             """
             UPDATE agent_profiles
-            SET name = ?, description = ?, system_prompt = ?, fallback_prompt = ?,
+            SET name = ?, description = ?, opening_message = ?, system_prompt = ?, fallback_prompt = ?,
                 chat_model_profile_id = ?, retrieval_top_k = ?, is_default = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 name,
                 description,
+                opening_message,
                 system_prompt,
                 fallback_prompt,
                 chat_model_profile_id,
@@ -1029,6 +1033,28 @@ class KnowledgeBaseRepository:
         self._conn.commit()
         return self.get_file(file_id)
 
+    def update_file_metadata(
+        self,
+        file_id: str,
+        *,
+        category_id: Optional[str],
+        original_name: str,
+        mime_type: str,
+        size_bytes: int,
+        content_hash: str,
+    ) -> Optional[FileRecord]:
+        now = utc_now()
+        self._conn.execute(
+            """
+            UPDATE kb_files
+            SET category_id = ?, original_name = ?, mime_type = ?, size_bytes = ?, content_hash = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (category_id, original_name, mime_type, size_bytes, content_hash, now, file_id),
+        )
+        self._conn.commit()
+        return self.get_file(file_id)
+
     def delete_file(self, file_id: str) -> None:
         self._conn.execute("DELETE FROM kb_files WHERE id = ?", (file_id,))
         self._conn.commit()
@@ -1136,6 +1162,17 @@ class KnowledgeBaseRepository:
             (kb_id,),
         ).fetchall()
         return [_row_to_job(row) for row in rows]
+
+    def clear_finished_jobs(self, kb_id: str) -> int:
+        cursor = self._conn.execute(
+            """
+            DELETE FROM kb_jobs
+            WHERE kb_id = ? AND status IN ('completed', 'failed')
+            """,
+            (kb_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount
 
     def list_pending_jobs(self) -> list[JobRecord]:
         rows = self._conn.execute(

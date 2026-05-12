@@ -22,6 +22,7 @@ type AgentProfile = {
   id: string;
   name: string;
   description: string;
+  opening_message: string;
   system_prompt: string;
   fallback_prompt: string;
   chat_model_profile_id: string | null;
@@ -47,6 +48,7 @@ type KnowledgeBase = {
 type AgentProfileForm = {
   name: string;
   description: string;
+  opening_message: string;
   system_prompt: string;
   fallback_prompt: string;
   chat_model_profile_id: string;
@@ -57,6 +59,8 @@ type AgentProfileForm = {
 const DEFAULT_FORM: AgentProfileForm = {
   name: '',
   description: '',
+  opening_message:
+    '你好，我是你的 AI 销售助理。我可以介绍产品、套餐、标准价格和购买流程。你可以直接问我具体需求。',
   system_prompt: '',
   fallback_prompt: '',
   chat_model_profile_id: '',
@@ -145,6 +149,7 @@ export function AgentPageClient() {
     setForm({
       name: profile.name,
       description: profile.description,
+      opening_message: profile.opening_message,
       system_prompt: profile.system_prompt,
       fallback_prompt: profile.fallback_prompt,
       chat_model_profile_id: profile.chat_model_profile_id ?? '',
@@ -189,6 +194,7 @@ export function AgentPageClient() {
       const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
+        opening_message: form.opening_message.trim(),
         system_prompt: form.system_prompt.trim(),
         fallback_prompt: form.fallback_prompt.trim(),
         chat_model_profile_id: form.chat_model_profile_id || null,
@@ -414,6 +420,18 @@ export function AgentPageClient() {
                 />
               </label>
             </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium">语音开场白</span>
+              <Textarea
+                value={form.opening_message}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, opening_message: event.target.value }))
+                }
+                placeholder="语音会话刚开始时自动播报的欢迎语。留空则不自动开场。"
+                className="min-h-24"
+              />
+            </label>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium">系统提示词</span>

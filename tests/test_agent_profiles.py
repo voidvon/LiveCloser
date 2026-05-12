@@ -4,10 +4,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+import sqlite3
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from livekit_sales_agent.defaults import DEFAULT_OPENING_MESSAGE  # noqa: E402
 from livekit_sales_agent.config import load_agent_profile_settings  # noqa: E402
 from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
@@ -76,6 +78,7 @@ class AgentProfileTest(unittest.TestCase):
             agent = service.create_agent_profile(
                 name="售前顾问",
                 description="负责售前咨询",
+                opening_message="你好，我是售前顾问，先和你确认下你的采购需求。",
                 system_prompt="你是售前顾问",
                 fallback_prompt="当资料不足时，引导用户补充需求。",
                 chat_model_profile_id=custom_model.id,
@@ -96,6 +99,7 @@ class AgentProfileTest(unittest.TestCase):
             self.assertEqual(resolved.profile_id, agent.id)
             self.assertEqual(resolved.retrieval_top_k, 7)
             self.assertEqual(resolved.knowledge_base_ids, [kb_one.id, kb_two.id])
+            self.assertEqual(resolved.opening_message, "你好，我是售前顾问，先和你确认下你的采购需求。")
             self.assertEqual(resolved.chat_model.model, custom_model.model)
             self.assertTrue(resolved.chat_model.is_deepseek_v4)
 
@@ -107,6 +111,70 @@ class AgentProfileTest(unittest.TestCase):
             self.assertEqual(fallback_resolved.profile_id, agent.id)
             self.assertEqual(fallback_resolved.chat_model.model, custom_model.model)
             self.assertNotEqual(default_model.id, custom_model.id)
+
+    def test_agent_profile_migration_backfills_opening_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "app.db"
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE agent_profiles (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL UNIQUE,
+                        description TEXT NOT NULL DEFAULT '',
+                        system_prompt TEXT NOT NULL DEFAULT '',
+                        fallback_prompt TEXT NOT NULL DEFAULT '',
+                        chat_model_profile_id TEXT,
+                        retrieval_top_k INTEGER NOT NULL DEFAULT 5,
+                        is_default INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO agent_profiles (
+                        id, name, description, system_prompt, fallback_prompt,
+                        chat_model_profile_id, retrieval_top_k, is_default, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "agent-1",
+                        "售前顾问",
+                        "",
+                        "",
+                        "",
+                        None,
+                        5,
+                        1,
+                        "2025-01-01T00:00:00+00:00",
+                        "2025-01-01T00:00:00+00:00",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            ensure_database(db_path)
+
+            migrated = sqlite3.connect(db_path)
+            migrated.row_factory = sqlite3.Row
+            try:
+                columns = {
+                    row["name"] for row in migrated.execute("PRAGMA table_info(agent_profiles)").fetchall()
+                }
+                self.assertIn("opening_message", columns)
+                row = migrated.execute(
+                    "SELECT opening_message FROM agent_profiles WHERE id = ?",
+                    ("agent-1",),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(row["opening_message"], DEFAULT_OPENING_MESSAGE)
+            finally:
+                migrated.close()
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ SCHEMA_STATEMENTS = [
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
         description TEXT NOT NULL DEFAULT '',
+        opening_message TEXT NOT NULL DEFAULT '',
         system_prompt TEXT NOT NULL DEFAULT '',
         fallback_prompt TEXT NOT NULL DEFAULT '',
         chat_model_profile_id TEXT,

@@ -3,8 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, RefreshCcw, Settings2, Upload } from 'lucide-react';
+import {
+  ArrowLeft,
+  BrushCleaning,
+  Plus,
+  RefreshCcw,
+  Settings2,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConfirmPopover } from '@/components/ui/confirm-popover';
 import {
   Dialog,
   DialogContent,
@@ -16,9 +25,11 @@ import {
 import { FieldSelect } from '@/components/ui/field-select';
 import { Input } from '@/components/ui/input';
 import { InteractiveCard } from '@/components/ui/interactive-card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
 import { TreeView, type TreeViewItem } from '@/components/ui/tree-view';
+import { TruncatedTooltipText } from '@/components/ui/truncated-tooltip-text';
 import { cn } from '@/lib/shadcn/utils';
 
 type KnowledgeBase = {
@@ -87,6 +98,11 @@ type KbJob = {
   finished_at: string | null;
 };
 
+type EditableKbFileDetail = {
+  file: KbFile;
+  content: string;
+};
+
 type LoadState = 'idle' | 'loading' | 'error';
 
 type CreateKbForm = {
@@ -133,13 +149,20 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createKbModalOpen, setCreateKbModalOpen] = useState(false);
-  const [jobsModalOpen, setJobsModalOpen] = useState(false);
   const [creatingKb, setCreatingKb] = useState(false);
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [retryingFileId, setRetryingFileId] = useState<string | null>(null);
+  const [updatingCategoryFileId, setUpdatingCategoryFileId] = useState<string | null>(null);
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
+  const [editingFile, setEditingFile] = useState<KbFile | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [savingFile, setSavingFile] = useState(false);
+  const [editingFileName, setEditingFileName] = useState('');
+  const [editingFileContent, setEditingFileContent] = useState('');
+  const [initialEditingFileName, setInitialEditingFileName] = useState('');
+  const [initialEditingFileContent, setInitialEditingFileContent] = useState('');
   const [createKbForm, setCreateKbForm] = useState<CreateKbForm>(DEFAULT_CREATE_KB_FORM);
-  const [categoryName, setCategoryName] = useState('');
   const isDetailRoute = Boolean(selectedKbId);
 
   useEffect(() => {
@@ -152,7 +175,7 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
       setCategories([]);
       setFiles([]);
       setJobs([]);
-      setJobsModalOpen(false);
+      closeFileEditor();
       return;
     }
     void loadKnowledgeBaseDetails(selectedKbId);
@@ -208,19 +231,16 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
     () => (selectedCategoryId ? (categoryMap.get(selectedCategoryId) ?? null) : null),
     [categoryMap, selectedCategoryId]
   );
-  const selectedCategoryPath = useMemo(
-    () =>
-      selectedCategoryId
-        ? (categoryPathById.get(selectedCategoryId) ?? selectedCategory?.name ?? '')
-        : '',
-    [categoryPathById, selectedCategory, selectedCategoryId]
-  );
   const visibleFiles = useMemo(() => {
     if (!visibleCategoryIds) {
       return files;
     }
     return files.filter((file) => file.category_id && visibleCategoryIds.has(file.category_id));
   }, [files, visibleCategoryIds]);
+  const fileNameById = useMemo(
+    () => new Map(files.map((file) => [file.id, file.original_name])),
+    [files]
+  );
 
   function openCreateKbModal() {
     setCreateKbForm({
@@ -233,6 +253,17 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
   function closeCreateKbModal() {
     setCreateKbModalOpen(false);
     setCreateKbForm(DEFAULT_CREATE_KB_FORM);
+  }
+
+  function closeFileEditor() {
+    setEditorOpen(false);
+    setEditingFile(null);
+    setEditorLoading(false);
+    setSavingFile(false);
+    setEditingFileName('');
+    setEditingFileContent('');
+    setInitialEditingFileName('');
+    setInitialEditingFileContent('');
   }
 
   async function loadKnowledgeBases() {
@@ -310,12 +341,12 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
     }
   }
 
-  async function handleCreateCategory() {
+  async function handleCreateCategory(parentId: string | null, name: string) {
     if (!selectedKbId) {
       setError('请先选择知识库');
       return;
     }
-    if (!categoryName.trim()) {
+    if (!name.trim()) {
       setError('分类名称不能为空');
       return;
     }
@@ -324,18 +355,17 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
       setCreatingCategory(true);
       setError(null);
       const siblingCount = categories.filter(
-        (category) => (category.parent_id ?? null) === (selectedCategoryId ?? null)
+        (category) => (category.parent_id ?? null) === (parentId ?? null)
       ).length;
       const record = await sendJson<Category>(
         `/api/kb/knowledge-bases/${selectedKbId}/categories`,
         'POST',
         {
-          name: categoryName.trim(),
-          parent_id: selectedCategoryId,
+          name: name.trim(),
+          parent_id: parentId,
           sort_order: siblingCount,
         }
       );
-      setCategoryName('');
       setSelectedCategoryId(record.id);
       await loadKnowledgeBaseDetails(selectedKbId);
     } catch (err: unknown) {
@@ -376,31 +406,118 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
     }
   }
 
-  async function handleRetryFile(fileId: string) {
+  async function handleOpenFileEditor(file: KbFile) {
+    if (!selectedKbId || !isEditableTextFile(file.original_name)) {
+      return;
+    }
+
+    try {
+      setEditorOpen(true);
+      setEditorLoading(true);
+      setError(null);
+      setEditingFile(file);
+      const detail = await getJson<EditableKbFileDetail>(
+        `/api/kb/knowledge-bases/${selectedKbId}/files/${file.id}`
+      );
+      setEditingFile(detail.file);
+      setEditingFileName(detail.file.original_name);
+      setEditingFileContent(detail.content);
+      setInitialEditingFileName(detail.file.original_name);
+      setInitialEditingFileContent(detail.content);
+    } catch (err: unknown) {
+      closeFileEditor();
+      setError(err instanceof Error ? err.message : '加载文档内容失败');
+    } finally {
+      setEditorLoading(false);
+    }
+  }
+
+  async function handleSaveFile() {
+    if (!selectedKbId || !editingFile) {
+      return;
+    }
+
+    try {
+      setSavingFile(true);
+      setError(null);
+      await sendJson<{ file: KbFile; job: KbJob | null }>(
+        `/api/kb/knowledge-bases/${selectedKbId}/files/${editingFile.id}`,
+        'PATCH',
+        {
+          original_name: editingFileName,
+          content: editingFileContent,
+        }
+      );
+      await loadKnowledgeBaseDetails(selectedKbId);
+      closeFileEditor();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '保存文档失败');
+    } finally {
+      setSavingFile(false);
+    }
+  }
+
+  async function handleUpdateFileCategory(file: KbFile, nextCategoryId: string) {
+    if (!selectedKbId) {
+      setError('请先选择知识库');
+      return;
+    }
+
+    const normalizedCategoryId = nextCategoryId || null;
+    if ((file.category_id ?? null) === normalizedCategoryId) {
+      return;
+    }
+
+    try {
+      setUpdatingCategoryFileId(file.id);
+      setError(null);
+      await sendJson<{ file: KbFile; job: KbJob | null }>(
+        `/api/kb/knowledge-bases/${selectedKbId}/files/${file.id}`,
+        'PATCH',
+        {
+          category_id: normalizedCategoryId,
+        }
+      );
+      await loadKnowledgeBaseDetails(selectedKbId);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '更新分类失败');
+    } finally {
+      setUpdatingCategoryFileId(null);
+    }
+  }
+
+  async function handleDeleteFile(file: KbFile) {
     if (!selectedKbId) {
       setError('请先选择知识库');
       return;
     }
 
     try {
-      setRetryingFileId(fileId);
+      setDeletingFileId(file.id);
       setError(null);
-      const response = await fetch(
-        `/api/kb/knowledge-bases/${selectedKbId}/files/${fileId}/embed`,
-        {
-          method: 'POST',
-        }
-      );
+      const response = await fetch(`/api/kb/knowledge-bases/${selectedKbId}/files/${file.id}`, {
+        method: 'DELETE',
+      });
       if (!response.ok) {
         throw new Error(await response.text());
       }
       await loadKnowledgeBaseDetails(selectedKbId);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '重试索引失败');
+      setError(err instanceof Error ? err.message : '删除文档失败');
     } finally {
-      setRetryingFileId(null);
+      setDeletingFileId(null);
     }
   }
+
+  const fileNameChanged = editingFileName.trim() !== initialEditingFileName;
+  const fileContentChanged = editingFileContent !== initialEditingFileContent;
+  const hasValidEditingFileName = editingFileName.trim().length > 0;
+  const canSaveFile = Boolean(
+    editingFile &&
+    !editorLoading &&
+    hasValidEditingFileName &&
+    (fileNameChanged || fileContentChanged)
+  );
 
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))]">
@@ -417,35 +534,36 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
 
         {isDetailRoute ? (
           selectedKb ? (
-          <KnowledgeBaseDetailView
-            categories={categories}
-            categoryName={categoryName}
-            categoryPathById={categoryPathById}
-            defaultExpandedIds={defaultExpandedIds}
-            creatingCategory={creatingCategory}
-            detailsLoading={detailsLoading}
-            files={visibleFiles}
-            fileCountByCategoryId={subtreeFileCountByCategoryId}
-            jobs={jobs}
-            jobsModalOpen={jobsModalOpen}
-            retryingFileId={retryingFileId}
-            selectedCategory={selectedCategory}
-            selectedCategoryId={selectedCategoryId}
-            selectedCategoryPath={selectedCategoryPath}
-            selectedKb={selectedKb}
-            selectedProfile={selectedProfile}
-            treeItems={treeItems}
-            totalFileCount={files.length}
-            uploading={uploading}
-            onBack={() => router.push('/kb')}
-            onCategoryNameChange={setCategoryName}
-            onCategorySelect={setSelectedCategoryId}
-            onCreateCategory={() => void handleCreateCategory()}
-            onJobsModalChange={setJobsModalOpen}
-            onRefresh={() => void loadKnowledgeBaseDetails(selectedKb.id)}
-            onRetryFile={(fileId) => void handleRetryFile(fileId)}
-            onUploadFile={(file) => void handleUploadFile(file)}
-          />
+            <KnowledgeBaseDetailView
+              categories={categories}
+              categoryPathById={categoryPathById}
+              defaultExpandedIds={defaultExpandedIds}
+              creatingCategory={creatingCategory}
+              detailsLoading={detailsLoading}
+              files={visibleFiles}
+              fileCountByCategoryId={subtreeFileCountByCategoryId}
+              jobs={jobs}
+              selectedCategory={selectedCategory}
+              selectedCategoryId={selectedCategoryId}
+              selectedKb={selectedKb}
+              selectedProfile={selectedProfile}
+              treeItems={treeItems}
+              totalFileCount={files.length}
+              fileNameById={fileNameById}
+              deletingFileId={deletingFileId}
+              updatingCategoryFileId={updatingCategoryFileId}
+              uploading={uploading}
+              onBack={() => router.push('/kb')}
+              onCategorySelect={setSelectedCategoryId}
+              onCreateCategory={(parentId, name) => void handleCreateCategory(parentId, name)}
+              onDeleteFile={handleDeleteFile}
+              onEditFile={(file) => void handleOpenFileEditor(file)}
+              onRefresh={() => void loadKnowledgeBaseDetails(selectedKb.id)}
+              onUpdateFileCategory={(file, categoryId) =>
+                void handleUpdateFileCategory(file, categoryId)
+              }
+              onUploadFile={(file) => void handleUploadFile(file)}
+            />
           ) : (
             <KnowledgeBaseDetailFallback
               loading={state === 'loading'}
@@ -559,6 +677,68 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
               </div>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editorOpen}
+        onOpenChange={(open) => {
+          if (savingFile) {
+            return;
+          }
+          if (!open) {
+            closeFileEditor();
+          }
+        }}
+      >
+        <DialogContent className="flex h-[90vh] w-[80vw] max-w-[1280px] flex-col overflow-hidden sm:max-w-[1280px]">
+          <DialogHeader>
+            <DialogTitle>编辑文档</DialogTitle>
+          </DialogHeader>
+
+          {editorLoading ? (
+            <div className="text-muted-foreground flex-1 py-8 text-sm">正在加载文档内容...</div>
+          ) : (
+            <div className="flex-1 space-y-4 pr-1">
+              <label className="flex items-center gap-3">
+                <span className="w-14 shrink-0 text-sm font-medium">文件名</span>
+                <Input
+                  value={editingFileName}
+                  onChange={(event) => setEditingFileName(event.target.value)}
+                  placeholder="输入文件名"
+                />
+              </label>
+
+              <label className="block">
+                <Textarea
+                  value={editingFileContent}
+                  onChange={(event) => setEditingFileContent(event.target.value)}
+                  className="min-h-[calc(90vh-220px)] font-mono text-sm"
+                  placeholder="输入文档内容"
+                />
+              </label>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              onClick={closeFileEditor}
+              disabled={savingFile}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              className="rounded-full"
+              onClick={() => void handleSaveFile()}
+              disabled={!canSaveFile || savingFile}
+            >
+              {savingFile ? '保存中...' : fileContentChanged ? '保存并重建索引' : '保存'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -690,7 +870,6 @@ function KnowledgeBaseListView({
 
 function KnowledgeBaseDetailView({
   categories,
-  categoryName,
   categoryPathById,
   defaultExpandedIds,
   creatingCategory,
@@ -698,27 +877,26 @@ function KnowledgeBaseDetailView({
   files,
   fileCountByCategoryId,
   jobs,
-  jobsModalOpen,
-  retryingFileId,
   selectedCategory,
   selectedCategoryId,
-  selectedCategoryPath,
   selectedKb,
   selectedProfile,
   treeItems,
   totalFileCount,
+  fileNameById,
+  deletingFileId,
+  updatingCategoryFileId,
   uploading,
   onBack,
-  onCategoryNameChange,
   onCategorySelect,
   onCreateCategory,
-  onJobsModalChange,
+  onDeleteFile,
+  onEditFile,
   onRefresh,
-  onRetryFile,
+  onUpdateFileCategory,
   onUploadFile,
 }: {
   categories: Category[];
-  categoryName: string;
   categoryPathById: Map<string, string>;
   defaultExpandedIds: string[];
   creatingCategory: boolean;
@@ -726,32 +904,36 @@ function KnowledgeBaseDetailView({
   files: KbFile[];
   fileCountByCategoryId: Map<string, number>;
   jobs: KbJob[];
-  jobsModalOpen: boolean;
-  retryingFileId: string | null;
   selectedCategory: Category | null;
   selectedCategoryId: string | null;
-  selectedCategoryPath: string;
   selectedKb: KnowledgeBase;
   selectedProfile: EmbeddingProfile | null;
   treeItems: TreeViewItem<Category>[];
   totalFileCount: number;
+  fileNameById: Map<string, string>;
+  deletingFileId: string | null;
+  updatingCategoryFileId: string | null;
   uploading: boolean;
   onBack: () => void;
-  onCategoryNameChange: (value: string) => void;
   onCategorySelect: (categoryId: string | null) => void;
-  onCreateCategory: () => void;
-  onJobsModalChange: (open: boolean) => void;
+  onCreateCategory: (parentId: string | null, name: string) => void;
+  onDeleteFile: (file: KbFile) => Promise<void> | void;
+  onEditFile: (file: KbFile) => void;
   onRefresh: () => void;
-  onRetryFile: (fileId: string) => void;
+  onUpdateFileCategory: (file: KbFile, categoryId: string) => void;
   onUploadFile: (file: File) => void;
 }) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const modelLabel = selectedProfile?.name || selectedKb.embedding_model || '未绑定模型';
-  const createLabel = selectedCategory ? '新增子分类' : '新增一级分类';
-  const createHint = selectedCategory
-    ? `将在「${selectedCategoryPath}」下创建子分类`
-    : '当前创建的是一级分类';
   const fileScopeTitle = selectedCategory ? selectedCategory.name : '全部资料';
+  const categoryOptions = useMemo(
+    () =>
+      categories.map((category) => ({
+        value: category.id,
+        label: categoryPathById.get(category.id) ?? category.name,
+      })),
+    [categories, categoryPathById]
+  );
 
   return (
     <>
@@ -778,144 +960,137 @@ function KnowledgeBaseDetailView({
       </div>
 
       <section className="space-y-4">
-        {detailsLoading ? (
-          <span className="text-muted-foreground text-sm">正在刷新资料...</span>
-        ) : null}
-
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium">分类树</h3>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {selectedCategory ? `当前：${selectedCategoryPath}` : '当前：全部资料'}
-                  </p>
-                </div>
-                <span className="text-muted-foreground text-xs">{categories.length} 个</span>
-              </div>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-medium">分类树</h3>
+              <span className="text-muted-foreground text-xs">{categories.length} 个</span>
+            </div>
 
-              <div className="mb-4 space-y-2">
-                <Input
-                  value={categoryName}
-                  onChange={(event) => onCategoryNameChange(event.target.value)}
-                  placeholder={selectedCategory ? '输入子分类名称' : '输入一级分类名称'}
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-muted-foreground text-xs">{createHint}</p>
-                  <Button
-                    variant="outline"
-                    className="rounded-full"
-                    size="sm"
-                    onClick={onCreateCategory}
-                    disabled={creatingCategory}
-                  >
-                    <Plus className="mr-2 size-4" />
-                    {creatingCategory ? '创建中...' : createLabel}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
+            <div className="space-y-2">
+              <div
+                className={cn(
+                  'group flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+                  selectedCategoryId === null
+                    ? 'border-primary/25 bg-primary/10'
+                    : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => onCategorySelect(null)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
-                    selectedCategoryId === null
-                      ? 'border-primary/25 bg-primary/10'
-                      : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
-                  )}
+                  className="min-w-0 flex-1 text-left font-medium"
                 >
-                  <span className="font-medium">全部资料</span>
-                  <span className="text-muted-foreground text-xs">{totalFileCount}</span>
+                  全部资料
                 </button>
+                <div className="ml-3 flex items-center gap-1.5">
+                  <span className="text-muted-foreground shrink-0 text-xs">{totalFileCount}</span>
+                  <AddCategoryPopoverButton
+                    creating={creatingCategory}
+                    label="新增一级分类"
+                    placeholder="输入一级分类名称"
+                    className="pointer-events-none opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                    onCreate={(name) => onCreateCategory(null, name)}
+                  />
+                </div>
+              </div>
 
-                {treeItems.length === 0 ? (
-                  <p className="text-muted-foreground px-1 pt-2 text-sm">
-                    还没有分类，先新增一个一级分类再上传资料。
-                  </p>
-                ) : (
-                  <TreeView
-                    data={treeItems}
-                    selectedItemId={selectedCategoryId}
-                    defaultExpandedItemIds={defaultExpandedIds}
-                    onSelectChange={(item) => onCategorySelect(item?.id ?? null)}
-                    renderItem={({ item, hasChildren, isExpanded, isSelected, select, toggle }) => (
-                      <div
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
-                          isSelected
-                            ? 'border-primary/25 bg-primary/10'
-                            : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
-                        )}
-                      >
-                        {hasChildren ? (
-                          <button
-                            type="button"
-                            onClick={toggle}
-                            className={cn(
-                              'text-muted-foreground inline-flex size-4 shrink-0 items-center justify-center transition-transform',
-                              isExpanded && 'rotate-90'
-                            )}
-                            aria-label={isExpanded ? '收起分类' : '展开分类'}
-                          >
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="size-4"
-                              aria-hidden="true"
-                            >
-                              <path d="m9 18 6-6-6-6" />
-                            </svg>
-                          </button>
-                        ) : (
-                          <span className="inline-flex size-4 shrink-0" aria-hidden="true" />
-                        )}
+              {treeItems.length === 0 ? (
+                <p className="text-muted-foreground px-1 pt-2 text-sm">
+                  还没有分类，先新增一个一级分类再上传资料。
+                </p>
+              ) : (
+                <TreeView
+                  data={treeItems}
+                  selectedItemId={selectedCategoryId}
+                  defaultExpandedItemIds={defaultExpandedIds}
+                  onSelectChange={(item) => onCategorySelect(item?.id ?? null)}
+                  renderItem={({ item, hasChildren, isExpanded, isSelected, select, toggle }) => (
+                    <div
+                      className={cn(
+                        'group flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+                        isSelected
+                          ? 'border-primary/25 bg-primary/10'
+                          : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
+                      )}
+                    >
+                      {hasChildren ? (
                         <button
                           type="button"
-                          onClick={select}
-                          className={cn('min-w-0 flex-1 truncate text-left', item.className)}
+                          onClick={toggle}
+                          className={cn(
+                            'text-muted-foreground inline-flex size-4 shrink-0 items-center justify-center transition-transform',
+                            isExpanded && 'rotate-90'
+                          )}
+                          aria-label={isExpanded ? '收起分类' : '展开分类'}
                         >
-                          {item.name}
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="size-4"
+                            aria-hidden="true"
+                          >
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
                         </button>
+                      ) : (
+                        <span className="inline-flex size-4 shrink-0" aria-hidden="true" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={select}
+                        className={cn('min-w-0 flex-1 truncate text-left', item.className)}
+                      >
+                        {item.name}
+                      </button>
+                      <div className="ml-2 flex items-center gap-1.5">
                         <span className="text-muted-foreground shrink-0 text-xs">
                           {fileCountByCategoryId.get(item.id) ?? 0}
                         </span>
+                        <AddCategoryPopoverButton
+                          creating={creatingCategory}
+                          label={`在 ${item.name} 下新增子分类`}
+                          placeholder="输入子分类名称"
+                          className="pointer-events-none opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                          onCreate={(name) => onCreateCategory(item.id, name)}
+                        />
                       </div>
-                    )}
-                  />
-                )}
-              </div>
+                    </div>
+                  )}
+                />
+              )}
+            </div>
           </Surface>
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-start gap-2">
               <Button
-                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full"
                 onClick={() => uploadInputRef.current?.click()}
                 disabled={uploading}
               >
                 <Upload className="mr-2 size-4" />
                 {uploading ? '上传中...' : '上传文档'}
               </Button>
-              <Button variant="outline" className="rounded-full" onClick={onRefresh}>
-                <RefreshCcw className="mr-2 size-4" />
-                刷新
-              </Button>
               <Button
                 variant="outline"
                 className="rounded-full"
-                onClick={() => onJobsModalChange(true)}
+                onClick={onRefresh}
+                disabled={detailsLoading}
               >
-                任务列表
-                <span className="border-border/70 bg-background/80 ml-2 rounded-full border px-2 py-0.5 text-xs">
-                  {jobs.length}
-                </span>
+                <RefreshCcw className="mr-2 size-4" />
+                刷新
               </Button>
+              <JobsPopoverButton
+                kbId={selectedKb.id}
+                jobs={jobs}
+                fileNameById={fileNameById}
+                onCleared={onRefresh}
+              />
             </div>
             <input
               ref={uploadInputRef}
@@ -931,123 +1106,343 @@ function KnowledgeBaseDetailView({
               }}
             />
 
-            <Surface className="overflow-hidden" padding="none">
-                <div className="border-border/60 flex items-center justify-between border-b px-4 py-4">
-                  <div>
-                    <h2 className="text-lg font-semibold">{fileScopeTitle}</h2>
-                  </div>
-                  <span className="text-muted-foreground text-sm">{files.length} 个文件</span>
+            <Surface className="relative overflow-hidden" padding="none">
+              <div className="border-border/60 flex items-center justify-between border-b px-4 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">{fileScopeTitle}</h2>
                 </div>
+                <span className="text-muted-foreground text-sm">{files.length} 个文件</span>
+              </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-left text-sm">
-                    <thead className="bg-background/44">
+              <div
+                className={cn(
+                  'overflow-x-auto transition-opacity duration-200',
+                  detailsLoading && 'pointer-events-none opacity-45 select-none'
+                )}
+              >
+                <table className="w-full min-w-[640px] table-fixed text-left text-sm">
+                  <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col className="w-[92px]" />
+                    <col />
+                  </colgroup>
+                  <thead className="bg-background/44">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">文件</th>
+                      <th className="px-4 py-3 font-medium">分类</th>
+                      <th className="px-4 py-3 font-medium">大小</th>
+                      <th className="w-[92px] px-4 py-3 font-medium">状态</th>
+                      <th className="px-4 py-3 font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {files.length === 0 ? (
                       <tr>
-                        <th className="px-4 py-3 font-medium">文件</th>
-                        <th className="px-4 py-3 font-medium">分类路径</th>
-                        <th className="px-4 py-3 font-medium">类型</th>
-                        <th className="px-4 py-3 font-medium">大小</th>
-                        <th className="px-4 py-3 font-medium">状态</th>
-                        <th className="px-4 py-3 font-medium">操作</th>
+                        <td colSpan={6} className="text-muted-foreground px-4 py-6">
+                          {selectedCategory
+                            ? '当前分类下还没有资料文档。'
+                            : '当前知识库还没有上传任何资料。'}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {files.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="text-muted-foreground px-4 py-6">
-                            {selectedCategory
-                              ? '当前分类下还没有资料文档。'
-                              : '当前知识库还没有上传任何资料。'}
+                    ) : (
+                      files.map((file) => (
+                        <tr key={file.id} className="border-border/60 border-t">
+                          <td className="px-4 py-3">
+                            {isEditableTextFile(file.original_name) ? (
+                              <button
+                                type="button"
+                                className="text-primary hover:text-primary/80 block max-w-[240px] cursor-pointer truncate text-left underline underline-offset-4"
+                                onClick={() => onEditFile(file)}
+                                title={file.original_name}
+                              >
+                                {file.original_name}
+                              </button>
+                            ) : (
+                              <span
+                                className="block max-w-[240px] truncate"
+                                title={file.original_name}
+                              >
+                                {file.original_name}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <FieldSelect
+                              value={file.category_id ?? ''}
+                              onValueChange={(value) => onUpdateFileCategory(file, value)}
+                              options={categoryOptions}
+                              placeholder="未分类"
+                              disabled={updatingCategoryFileId === file.id}
+                              triggerClassName="h-9 min-w-[180px] max-w-[180px] rounded-xl border-dashed bg-transparent text-left"
+                              contentClassName="max-h-80"
+                            />
+                          </td>
+                          <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
+                          <td className="w-[92px] px-4 py-3">
+                            <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-xs uppercase">
+                              {formatKbStatus(file.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <DeleteFilePopoverButton
+                              file={file}
+                              deleting={deletingFileId === file.id}
+                              onDelete={onDeleteFile}
+                            />
                           </td>
                         </tr>
-                      ) : (
-                        files.map((file) => (
-                          <tr key={file.id} className="border-border/60 border-t">
-                            <td className="px-4 py-3">{file.original_name}</td>
-                            <td className="px-4 py-3">
-                              {file.category_id
-                                ? (categoryPathById.get(file.category_id) ?? '-')
-                                : '未分类'}
-                            </td>
-                            <td className="px-4 py-3">{file.mime_type || '-'}</td>
-                            <td className="px-4 py-3">{formatBytes(file.size_bytes)}</td>
-                            <td className="px-4 py-3">
-                              <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-xs uppercase">
-                                {file.status}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              {file.status === 'failed' ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="rounded-full"
-                                  onClick={() => onRetryFile(file.id)}
-                                  disabled={retryingFileId === file.id}
-                                >
-                                  {retryingFileId === file.id ? '重试中...' : '重试索引'}
-                                </Button>
-                              ) : (
-                                <span className="text-muted-foreground text-xs">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {detailsLoading ? (
+                <div
+                  className="bg-background/18 absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[1px]"
+                  aria-hidden="true"
+                >
+                  <div className="border-primary/35 border-t-primary size-6 animate-spin rounded-full border-2" />
                 </div>
+              ) : null}
             </Surface>
-            </div>
           </div>
+        </div>
       </section>
-
-      <Dialog open={jobsModalOpen} onOpenChange={onJobsModalChange}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>索引任务</DialogTitle>
-            <DialogDescription>
-              当前知识库的文件索引、重试与错误状态都在这里集中查看。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {jobs.length === 0 ? (
-              <EmptyBlock title="还没有任务" description="上传资料后，这里会出现对应的索引任务。" />
-            ) : (
-              jobs.map((job) => (
-                <InteractiveCard key={job.id} variant="default" radius="lg" padding="md">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium">{job.job_type}</p>
-                    <span className="border-primary/18 bg-primary/10 rounded-full border px-2.5 py-1 text-[11px] tracking-[0.18em] uppercase">
-                      {job.status}
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground mt-2 text-xs leading-5">
-                    创建时间：{new Date(job.created_at).toLocaleString()}
-                  </p>
-                  {job.started_at ? (
-                    <p className="text-muted-foreground mt-1 text-xs leading-5">
-                      开始时间：{new Date(job.started_at).toLocaleString()}
-                    </p>
-                  ) : null}
-                  {job.finished_at ? (
-                    <p className="text-muted-foreground mt-1 text-xs leading-5">
-                      结束时间：{new Date(job.finished_at).toLocaleString()}
-                    </p>
-                  ) : null}
-                  {job.error_message ? (
-                    <p className="mt-2 text-xs leading-5 text-red-600 dark:text-red-300">
-                      错误：{job.error_message}
-                    </p>
-                  ) : null}
-                </InteractiveCard>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
+  );
+}
+
+function AddCategoryPopoverButton({
+  creating,
+  label,
+  placeholder,
+  className,
+  onCreate,
+}: {
+  creating: boolean;
+  label: string;
+  placeholder: string;
+  className?: string;
+  onCreate: (name: string) => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!creating) {
+          setOpen(nextOpen);
+        }
+        if (!nextOpen && !creating) {
+          setName('');
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className={cn('rounded-full', className)}
+          disabled={creating}
+          aria-label={label}
+          title={label}
+        >
+          <Plus className="size-3" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" className="w-72 space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">{label}</p>
+        </div>
+        <Input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder={placeholder}
+        />
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={() => {
+              setOpen(false);
+              setName('');
+            }}
+            disabled={creating}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-full"
+            disabled={creating || !name.trim()}
+            onClick={async () => {
+              await onCreate(name);
+              setOpen(false);
+              setName('');
+            }}
+          >
+            {creating ? '创建中...' : '新增'}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function JobsPopoverButton({
+  kbId,
+  jobs,
+  fileNameById,
+  onCleared,
+}: {
+  kbId: string;
+  jobs: KbJob[];
+  fileNameById: Map<string, string>;
+  onCleared: () => void;
+}) {
+  const [clearing, setClearing] = useState(false);
+
+  async function handleClearFinishedJobs() {
+    try {
+      setClearing(true);
+      const response = await fetch(`/api/kb/knowledge-bases/${kbId}/jobs`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      onCleared();
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="rounded-full">
+          任务列表
+          <span className="border-border/70 bg-background/80 ml-2 rounded-full border px-2 py-0.5 text-xs">
+            {jobs.length}
+          </span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(92vw,720px)] p-0">
+        <div className="border-border/60 flex items-center justify-between border-b px-4 py-3">
+          <p className="text-sm font-semibold">索引任务</p>
+          <ConfirmPopover
+            title="清理已结束任务？"
+            description="只会清理已完成和失败的任务记录，进行中的任务会保留。"
+            confirmLabel="确认清理"
+            confirming={clearing}
+            align="end"
+            onConfirm={handleClearFinishedJobs}
+          >
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-full"
+              disabled={clearing}
+              aria-label="清理已结束任务"
+              title="清理已结束任务"
+            >
+              <BrushCleaning className="size-3.5" />
+            </Button>
+          </ConfirmPopover>
+        </div>
+
+        {jobs.length === 0 ? (
+          <div className="text-muted-foreground px-4 py-6 text-sm">
+            上传资料后，这里会出现对应的索引任务。
+          </div>
+        ) : (
+          <div className="max-h-[420px] overflow-auto">
+            <table className="w-full min-w-[620px] table-fixed text-left text-xs">
+              <thead className="bg-background/60">
+                <tr>
+                  <th className="px-4 py-2.5 font-medium">文件</th>
+                  <th className="w-[86px] px-4 py-2.5 font-medium">状态</th>
+                  <th className="px-4 py-2.5 font-medium">开始 / 结束</th>
+                  <th className="px-4 py-2.5 font-medium">错误</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((job) => (
+                  <tr key={job.id} className="border-border/50 border-t align-top">
+                    <td className="px-4 py-3 font-medium">
+                      {job.file_id
+                        ? (fileNameById.get(job.file_id) ?? '未找到对应文件')
+                        : '未关联文件'}
+                    </td>
+                    <td className="w-[86px] px-4 py-3">
+                      <span className="border-primary/18 bg-primary/10 rounded-full border px-2 py-0.5 text-[11px] uppercase">
+                        {formatKbStatus(job.status)}
+                      </span>
+                    </td>
+                    <td className="text-muted-foreground px-4 py-3">
+                      <span>{formatJobTimeRange(job.started_at, job.finished_at)}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {job.error_message ? (
+                        <TruncatedTooltipText
+                          text={job.error_message}
+                          as="p"
+                          lines={2}
+                          className="text-red-600 dark:text-red-300"
+                          tooltipVariant="contrast"
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DeleteFilePopoverButton({
+  file,
+  deleting,
+  onDelete,
+}: {
+  file: KbFile;
+  deleting: boolean;
+  onDelete: (file: KbFile) => Promise<void> | void;
+}) {
+  return (
+    <ConfirmPopover
+      title="确认删除文档？"
+      description={`将删除“${file.original_name}”及对应索引数据，且不可恢复。`}
+      confirmLabel="确认删除"
+      confirming={deleting}
+      align="end"
+      onConfirm={() => onDelete(file)}
+    >
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="text-destructive hover:text-destructive rounded-full"
+        disabled={deleting}
+        aria-label={`删除 ${file.original_name}`}
+        title="删除文档"
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    </ConfirmPopover>
   );
 }
 
@@ -1220,4 +1615,53 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatKbStatus(status: string) {
+  switch (status) {
+    case 'queued':
+      return '排队中';
+    case 'embedding':
+      return '索引中';
+    case 'ready':
+      return '已就绪';
+    case 'running':
+      return '进行中';
+    case 'completed':
+      return '已完成';
+    case 'failed':
+      return '失败';
+    default:
+      return status;
+  }
+}
+
+function formatJobTimeRange(startedAt: string | null, finishedAt: string | null) {
+  if (!startedAt && !finishedAt) {
+    return '-';
+  }
+
+  return `${formatShortDateTime(startedAt)} ~ ${formatShortDateTime(finishedAt)}`;
+}
+
+function formatShortDateTime(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  const date = new Date(value);
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function isEditableTextFile(fileName: string): boolean {
+  const normalized = fileName.toLowerCase();
+  return (
+    normalized.endsWith('.txt') || normalized.endsWith('.md') || normalized.endsWith('.markdown')
+  );
 }
