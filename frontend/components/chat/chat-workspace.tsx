@@ -31,6 +31,7 @@ interface ChatWorkspaceProps {
   onPersistedMessagesChange: (messages: ConversationMessageRecord[]) => void;
   onStartTextChat: (conversationId: string | null) => void;
   onStartVoiceChat: (conversationId: string | null) => void;
+  onForceEndSession?: () => Promise<void>;
   startDisabled?: boolean;
   startDisabledReason?: string;
   sessionMode: 'text' | 'voice';
@@ -169,6 +170,7 @@ export function ChatWorkspace({
   onPersistedMessagesChange,
   onStartTextChat,
   onStartVoiceChat,
+  onForceEndSession,
   startDisabled = false,
   startDisabledReason,
   sessionMode,
@@ -192,6 +194,8 @@ export function ChatWorkspace({
   const previousSessionActiveRef = useRef(sessionActive);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const loadRequestIdRef = useRef(0);
+  const autoEndingConversationIdRef = useRef<string | null>(null);
+  const statusPollInFlightRef = useRef(false);
 
   useEffect(() => {
     void loadConversations();
@@ -245,6 +249,55 @@ export function ChatWorkspace({
       }
     }
   }, [activeConversationId, sessionActive]);
+
+  useEffect(() => {
+    if (!sessionActive || sessionMode !== 'voice' || !activeConversationId || !onForceEndSession) {
+      autoEndingConversationIdRef.current = null;
+      statusPollInFlightRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollConversationStatus() {
+      if (statusPollInFlightRef.current) {
+        return;
+      }
+      statusPollInFlightRef.current = true;
+      try {
+        const data = await getJson<ConversationRecord[]>('/api/chat/conversations');
+        if (cancelled) {
+          return;
+        }
+        setConversations(data);
+        const activeConversation =
+          data.find((conversation) => conversation.id === activeConversationId) ?? null;
+        if (
+          activeConversation?.status === 'ended' &&
+          activeConversation.end_reason === 'away_timeout' &&
+          autoEndingConversationIdRef.current !== activeConversation.id
+        ) {
+          autoEndingConversationIdRef.current = activeConversation.id;
+          await onForceEndSession();
+        }
+      } catch {
+        return;
+      } finally {
+        statusPollInFlightRef.current = false;
+      }
+    }
+
+    void pollConversationStatus();
+    const intervalId = window.setInterval(() => {
+      void pollConversationStatus();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      statusPollInFlightRef.current = false;
+    };
+  }, [activeConversationId, onForceEndSession, sessionActive, sessionMode]);
 
   useEffect(() => {
     if (!contextMenu) {

@@ -45,7 +45,7 @@ export function ViewController({
   onPersistedMessagesChange,
   onPrepareSessionStart,
 }: ViewControllerProps) {
-  const { isConnected, start } = useSessionContext();
+  const { isConnected, start, end } = useSessionContext();
   const { resolvedTheme } = useTheme();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseOption[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileOption[]>([]);
@@ -128,6 +128,7 @@ export function ViewController({
           agentProfiles={agentProfiles}
           onStartTextChat={handleStartTextChat}
           onStartVoiceChat={handleStartVoiceChat}
+          onForceEndSession={end}
           knowledgeBases={knowledgeBases}
           activeKnowledgeBaseId={activeKnowledgeBaseId}
           onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
