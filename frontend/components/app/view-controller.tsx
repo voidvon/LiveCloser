@@ -15,8 +15,6 @@ interface ViewControllerProps {
   appConfig: AppConfig;
   sessionMode: 'text' | 'voice';
   onSessionModeChange: (mode: 'text' | 'voice') => void;
-  activeKnowledgeBaseId: string | null;
-  onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
   activeAgentProfileId: string | null;
   onActiveAgentProfileIdChange: (agentProfileId: string | null) => void;
   activeConversationId: string | null;
@@ -25,7 +23,6 @@ interface ViewControllerProps {
   onPersistedMessagesChange: (messages: ConversationMessageRecord[]) => void;
   onPrepareSessionStart: (
     mode: 'text' | 'voice',
-    kbId: string | null,
     agentProfileId: string | null,
     conversationId: string | null
   ) => void;
@@ -35,8 +32,6 @@ export function ViewController({
   appConfig,
   sessionMode,
   onSessionModeChange,
-  activeKnowledgeBaseId,
-  onActiveKnowledgeBaseIdChange,
   activeAgentProfileId,
   onActiveAgentProfileIdChange,
   activeConversationId,
@@ -76,12 +71,6 @@ export function ViewController({
   }, []);
 
   useEffect(() => {
-    if (!activeKnowledgeBaseId && knowledgeBases[0]?.id) {
-      onActiveKnowledgeBaseIdChange(knowledgeBases[0].id);
-    }
-  }, [activeKnowledgeBaseId, knowledgeBases, onActiveKnowledgeBaseIdChange]);
-
-  useEffect(() => {
     if (activeAgentProfileId) {
       return;
     }
@@ -100,7 +89,7 @@ export function ViewController({
       return;
     }
 
-    onPrepareSessionStart('text', activeKnowledgeBaseId, activeAgentProfileId, conversationId);
+    onPrepareSessionStart('text', activeAgentProfileId, conversationId);
     onSessionModeChange('text');
     void start({
       tracks: {
@@ -116,7 +105,7 @@ export function ViewController({
       return;
     }
 
-    onPrepareSessionStart('voice', activeKnowledgeBaseId, activeAgentProfileId, conversationId);
+    onPrepareSessionStart('voice', activeAgentProfileId, conversationId);
     onSessionModeChange('voice');
     void start();
   };
@@ -130,8 +119,6 @@ export function ViewController({
           onStartVoiceChat={handleStartVoiceChat}
           onForceEndSession={end}
           knowledgeBases={knowledgeBases}
-          activeKnowledgeBaseId={activeKnowledgeBaseId}
-          onActiveKnowledgeBaseIdChange={onActiveKnowledgeBaseIdChange}
           activeAgentProfileId={activeAgentProfileId}
           onActiveAgentProfileIdChange={onActiveAgentProfileIdChange}
           activeConversationId={activeConversationId}

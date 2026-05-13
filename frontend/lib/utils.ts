@@ -179,7 +179,6 @@ export function getSandboxTokenSource(appConfig: AppConfig) {
 export function getAppTokenSource(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
-  knowledgeBaseId?: string | null,
   agentProfileId?: string | null,
   conversationId?: string | null,
   dispatchAgent?: boolean
@@ -188,7 +187,6 @@ export function getAppTokenSource(
     requestAppConnectionDetails(
       appConfig,
       sessionMode,
-      knowledgeBaseId,
       agentProfileId,
       conversationId,
       dispatchAgent
@@ -199,7 +197,6 @@ export function getAppTokenSource(
 export async function requestAppConnectionDetails(
   appConfig: AppConfig,
   sessionMode: 'text' | 'voice',
-  knowledgeBaseId?: string | null,
   agentProfileId?: string | null,
   conversationId?: string | null,
   dispatchAgent = false
@@ -208,7 +205,6 @@ export async function requestAppConnectionDetails(
 
   const participantMetadata = JSON.stringify({
     session_mode: sessionMode,
-    knowledge_base_id: knowledgeBaseId ?? null,
     agent_profile_id: agentProfileId ?? null,
     conversation_id: conversationId ?? null,
   });

@@ -1,6 +1,5 @@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { FieldSelect } from '@/components/ui/field-select';
 import { Surface } from '@/components/ui/surface';
 
 function WelcomeImage() {
@@ -24,9 +23,6 @@ function WelcomeImage() {
 interface WelcomeViewProps {
   onStartTextChat: () => void;
   onStartVoiceChat: () => void;
-  knowledgeBases?: Array<{ id: string; name: string }>;
-  activeKnowledgeBaseId?: string | null;
-  onActiveKnowledgeBaseIdChange?: (kbId: string | null) => void;
   startDisabled?: boolean;
   startDisabledReason?: string;
 }
@@ -34,9 +30,6 @@ interface WelcomeViewProps {
 export const WelcomeView = ({
   onStartTextChat,
   onStartVoiceChat,
-  knowledgeBases = [],
-  activeKnowledgeBaseId,
-  onActiveKnowledgeBaseIdChange,
   startDisabled = false,
   startDisabledReason,
   ref,
@@ -53,19 +46,6 @@ export const WelcomeView = ({
         <p className="text-foreground max-w-prose pt-1 leading-6 font-medium">
           选择消息对话或语音对话，开始和 AI 助手交互
         </p>
-
-        <div className="mt-5 w-full max-w-md text-left">
-          <label className="mb-2 block text-sm font-medium">当前会话知识库</label>
-          <FieldSelect
-            value={activeKnowledgeBaseId ?? ''}
-            onValueChange={(value) => onActiveKnowledgeBaseIdChange?.(value || null)}
-            placeholder="不绑定知识库"
-            options={knowledgeBases.map((kb) => ({
-              value: kb.id,
-              label: kb.name,
-            }))}
-          />
-        </div>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <Button

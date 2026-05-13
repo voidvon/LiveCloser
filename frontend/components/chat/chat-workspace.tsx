@@ -21,8 +21,6 @@ import type {
 interface ChatWorkspaceProps {
   agentProfiles: AgentProfileOption[];
   knowledgeBases: KnowledgeBaseOption[];
-  activeKnowledgeBaseId: string | null;
-  onActiveKnowledgeBaseIdChange: (kbId: string | null) => void;
   activeAgentProfileId: string | null;
   onActiveAgentProfileIdChange: (agentProfileId: string | null) => void;
   activeConversationId: string | null;
@@ -160,8 +158,6 @@ type ContextMenuState = {
 export function ChatWorkspace({
   agentProfiles,
   knowledgeBases,
-  activeKnowledgeBaseId,
-  onActiveKnowledgeBaseIdChange,
   activeAgentProfileId,
   onActiveAgentProfileIdChange,
   activeConversationId,
@@ -215,24 +211,60 @@ export function ChatWorkspace({
     () => agentProfiles.find((item) => item.id === activeAgentProfileId) ?? null,
     [agentProfiles, activeAgentProfileId]
   );
-  const visibleKnowledgeBases = useMemo(() => {
-    const allowedKbIds = activeAgentProfile?.knowledge_base_ids ?? [];
-    if (allowedKbIds.length === 0) {
-      return knowledgeBases;
+  const activeAgentKnowledgeBaseNames = useMemo(() => {
+    if (!activeAgentProfile?.knowledge_base_ids.length) {
+      return [];
     }
-    const allowedSet = new Set(allowedKbIds);
-    return knowledgeBases.filter((kb) => allowedSet.has(kb.id));
+    const knowledgeBaseNameById = new Map(knowledgeBases.map((kb) => [kb.id, kb.name]));
+    return activeAgentProfile.knowledge_base_ids.flatMap((kbId) => {
+      const name = knowledgeBaseNameById.get(kbId);
+      return name ? [name] : [];
+    });
   }, [activeAgentProfile, knowledgeBases]);
+  const visibleConversations = useMemo(() => {
+    if (!activeAgentProfileId) {
+      return conversations;
+    }
+    return conversations.filter((conversation) => conversation.agent_profile_id === activeAgentProfileId);
+  }, [activeAgentProfileId, conversations]);
 
   useEffect(() => {
-    if (!activeKnowledgeBaseId) {
+    if (!activeConversationId || !activeAgentProfileId || sessionActive) {
       return;
     }
-    if (visibleKnowledgeBases.some((item) => item.id === activeKnowledgeBaseId)) {
+    const activeConversation =
+      conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+    if (!activeConversation || activeConversation.agent_profile_id === activeAgentProfileId) {
       return;
     }
-    onActiveKnowledgeBaseIdChange(visibleKnowledgeBases[0]?.id ?? null);
-  }, [activeKnowledgeBaseId, onActiveKnowledgeBaseIdChange, visibleKnowledgeBases]);
+    onActiveConversationIdChange(null);
+    setDisplayedConversationId(null);
+    setDisplayedConversationTitle(null);
+    setDisplayedMessages([]);
+    onPersistedMessagesChange([]);
+    setContextMenu(null);
+    if (renamingConversationId) {
+      cancelRenameConversation();
+    }
+  }, [
+    activeAgentProfileId,
+    activeConversationId,
+    conversations,
+    onActiveConversationIdChange,
+    onPersistedMessagesChange,
+    renamingConversationId,
+    sessionActive,
+  ]);
+
+  useEffect(() => {
+    const visibleConversationIds = new Set(visibleConversations.map((conversation) => conversation.id));
+    if (contextMenu && !visibleConversationIds.has(contextMenu.conversationId)) {
+      setContextMenu(null);
+    }
+    if (renamingConversationId && !visibleConversationIds.has(renamingConversationId)) {
+      cancelRenameConversation();
+    }
+  }, [contextMenu, renamingConversationId, visibleConversations]);
 
   useEffect(() => {
     const previousSessionActive = previousSessionActiveRef.current;
@@ -258,6 +290,7 @@ export function ChatWorkspace({
     }
 
     let cancelled = false;
+    const forceEndSession = onForceEndSession;
 
     async function pollConversationStatus() {
       if (statusPollInFlightRef.current) {
@@ -278,7 +311,7 @@ export function ChatWorkspace({
           autoEndingConversationIdRef.current !== activeConversation.id
         ) {
           autoEndingConversationIdRef.current = activeConversation.id;
-          await onForceEndSession();
+          await forceEndSession();
         }
       } catch {
         return;
@@ -410,7 +443,6 @@ export function ChatWorkspace({
       setContextMenu(null);
       const conversation = await postJson<ConversationRecord>('/api/chat/conversations', {
         title: '新会话',
-        knowledge_base_id: activeKnowledgeBaseId,
         agent_profile_id: activeAgentProfileId,
         last_mode: 'text',
       });
@@ -437,7 +469,6 @@ export function ChatWorkspace({
     }
     const conversation = conversations.find((item) => item.id === conversationId) ?? null;
     onActiveConversationIdChange(conversationId);
-    onActiveKnowledgeBaseIdChange(conversation?.knowledge_base_id ?? null);
     onActiveAgentProfileIdChange(conversation?.agent_profile_id ?? null);
     const cachedMessages = messageCache[conversationId];
     if (cachedMessages) {
@@ -610,20 +641,11 @@ export function ChatWorkspace({
                 label: profile.name,
               }))}
             />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">当前会话知识库</span>
-            <FieldSelect
-              value={activeKnowledgeBaseId ?? ''}
-              onValueChange={(value) => onActiveKnowledgeBaseIdChange(value || null)}
-              disabled={sessionActive}
-              placeholder="不绑定知识库"
-              options={visibleKnowledgeBases.map((kb) => ({
-                value: kb.id,
-                label: kb.name,
-              }))}
-            />
+            <p className="text-muted-foreground mt-2 text-xs leading-5">
+              {activeAgentKnowledgeBaseNames.length > 0
+                ? `当前智能体将使用：${activeAgentKnowledgeBaseNames.join('、')}`
+                : '当前智能体未绑定知识库，知识库检索不可用。'}
+            </p>
           </label>
         </div>
 
@@ -637,16 +659,18 @@ export function ChatWorkspace({
               >
                 正在加载会话列表…
               </Surface>
-            ) : conversations.length === 0 ? (
+            ) : visibleConversations.length === 0 ? (
               <Surface
                 className="text-muted-foreground border-dashed px-4 py-6 text-sm leading-6"
                 variant="muted"
                 radius="lg"
               >
-                还没有历史会话。先新建一个会话，再选择消息或语音方式开始。
+                {activeAgentProfile
+                  ? `当前智能体“${activeAgentProfile.name}”下还没有历史会话。先新建一个会话，再开始对话。`
+                  : '还没有历史会话。先新建一个会话，再选择消息或语音方式开始。'}
               </Surface>
             ) : (
-              conversations.map((conversation) => {
+              visibleConversations.map((conversation) => {
                 const statusMeta = getConversationStatusMeta(conversation);
                 return renamingConversationId === conversation.id ? (
                   <InteractiveCard

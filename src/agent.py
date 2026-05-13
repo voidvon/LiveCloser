@@ -54,7 +54,6 @@ logger = logging.getLogger("livekit_sales_agent.agent")
 @dataclass
 class SessionMetadata:
     session_mode: str = "voice"
-    knowledge_base_id: Optional[str] = None
     agent_profile_id: Optional[str] = None
     conversation_id: Optional[str] = None
 
@@ -282,18 +281,12 @@ class SalesAgent(Agent):
         return self._search_knowledge_base(query)
 
     def _resolve_search_kb_ids(self) -> list[str]:
-        selected_kb_id = self._metadata.knowledge_base_id
-        allowed_kb_ids = self._agent_profile.knowledge_base_ids
-        if selected_kb_id:
-            if not allowed_kb_ids or selected_kb_id in allowed_kb_ids:
-                return [selected_kb_id]
-            return allowed_kb_ids
-        return allowed_kb_ids
+        return list(self._agent_profile.knowledge_base_ids)
 
     def _search_knowledge_base(self, query: str) -> str:
         kb_ids = self._resolve_search_kb_ids()
         if not kb_ids:
-            return "当前会话没有绑定知识库。"
+            return "当前智能体没有绑定知识库。"
 
         try:
             if len(kb_ids) == 1:
@@ -498,7 +491,7 @@ async def handle_text_input(
         "handling text input",
         extra={
             "session_mode": agent._metadata.session_mode,
-            "knowledge_base_id": agent._metadata.knowledge_base_id,
+            "knowledge_base_ids": agent._resolve_search_kb_ids(),
             "query": query,
         },
     )
@@ -522,7 +515,6 @@ def parse_session_metadata(ctx: JobContext) -> SessionMetadata:
         return SessionMetadata()
     return SessionMetadata(
         session_mode=str(payload.get("session_mode") or "voice"),
-        knowledge_base_id=_optional_str(payload.get("knowledge_base_id")),
         agent_profile_id=_optional_str(payload.get("agent_profile_id")),
         conversation_id=_optional_str(payload.get("conversation_id")),
     )
@@ -608,7 +600,7 @@ async def entrypoint(ctx: JobContext) -> None:
     metadata.agent_profile_id = resolved_agent_profile.profile_id
     ensured_conversation = conversation_service.ensure_conversation(
         metadata.conversation_id,
-        knowledge_base_id=metadata.knowledge_base_id,
+        knowledge_base_id=None,
         agent_profile_id=metadata.agent_profile_id,
         last_mode=metadata.session_mode,
     )
@@ -618,7 +610,7 @@ async def entrypoint(ctx: JobContext) -> None:
         "starting agent session",
         extra={
             "session_mode": metadata.session_mode,
-            "knowledge_base_id": metadata.knowledge_base_id,
+            "knowledge_base_ids": resolved_agent_profile.knowledge_base_ids,
             "agent_profile_id": metadata.agent_profile_id,
             "conversation_id": metadata.conversation_id,
             "raw_metadata": raw_metadata,

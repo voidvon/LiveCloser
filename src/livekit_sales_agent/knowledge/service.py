@@ -4,11 +4,14 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+from livekit_sales_agent.config import load_chat_model_settings
+
 from .db import connect
 from .jobs import JobRunner
 from .retrieval import RetrievalService
 from .chroma_store import ChromaStore
 from .repositories import KnowledgeBaseRepository
+from .rewrite import DocumentRewriteService, RewriteMessage
 from .storage import (
     is_editable_text_file_name,
     normalize_file_name,
@@ -608,6 +611,40 @@ class KnowledgeService:
                 raise ValueError("仅支持编辑 txt 或 md 文档")
             content = read_text_file(Path(file_record.stored_path))
             return file_record, content
+
+    def rewrite_file(
+        self,
+        *,
+        kb_id: str,
+        file_id: str,
+        file_name: str,
+        content: str,
+        instruction: str,
+        history: list[dict[str, str]],
+        selected_text: Optional[str] = None,
+    ):
+        with connect(self._db_path) as conn:
+            repo = KnowledgeBaseRepository(conn)
+            file_record = self._get_file_for_kb(repo, kb_id=kb_id, file_id=file_id)
+            if file_record is None:
+                return None
+            if not is_editable_text_file_name(file_record.original_name):
+                raise ValueError("仅支持编辑 txt 或 md 文档")
+
+        model_settings = load_chat_model_settings(self._db_path)
+        rewrite_service = DocumentRewriteService(model=model_settings)
+        parsed_history = [
+            RewriteMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in history
+            if isinstance(item, dict)
+        ]
+        return rewrite_service.rewrite(
+            file_name=file_name,
+            content=content,
+            instruction=instruction,
+            history=parsed_history,
+            selected_text=selected_text,
+        )
 
     def upload_file(
         self,

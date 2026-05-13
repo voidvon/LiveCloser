@@ -29,7 +29,6 @@ interface AppProps {
 
 type PendingSessionConfig = {
   sessionMode: 'text' | 'voice';
-  knowledgeBaseId: string | null;
   agentProfileId: string | null;
   conversationId: string | null;
   dispatchAgent: boolean;
@@ -37,13 +36,11 @@ type PendingSessionConfig = {
 
 export function App({ appConfig }: AppProps) {
   const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('text');
-  const [activeKnowledgeBaseId, setActiveKnowledgeBaseId] = useState<string | null>(null);
   const [activeAgentProfileId, setActiveAgentProfileId] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [persistedMessages, setPersistedMessages] = useState<ConversationMessageRecord[]>([]);
   const pendingSessionConfigRef = useRef<PendingSessionConfig>({
     sessionMode: 'text',
-    knowledgeBaseId: null,
     agentProfileId: null,
     conversationId: null,
     dispatchAgent: false,
@@ -56,7 +53,6 @@ export function App({ appConfig }: AppProps) {
           const connectionDetails = await requestAppConnectionDetails(
             appConfig,
             pending.sessionMode,
-            pending.knowledgeBaseId,
             pending.agentProfileId,
             pending.conversationId,
             pending.dispatchAgent
@@ -84,23 +80,15 @@ export function App({ appConfig }: AppProps) {
           appConfig={appConfig}
           sessionMode={sessionMode}
           onSessionModeChange={setSessionMode}
-          activeKnowledgeBaseId={activeKnowledgeBaseId}
-          onActiveKnowledgeBaseIdChange={setActiveKnowledgeBaseId}
           activeAgentProfileId={activeAgentProfileId}
           onActiveAgentProfileIdChange={setActiveAgentProfileId}
           activeConversationId={activeConversationId}
           onActiveConversationIdChange={setActiveConversationId}
           persistedMessages={persistedMessages}
           onPersistedMessagesChange={setPersistedMessages}
-          onPrepareSessionStart={(
-            nextMode,
-            nextKnowledgeBaseId,
-            nextAgentProfileId,
-            nextConversationId
-          ) => {
+          onPrepareSessionStart={(nextMode, nextAgentProfileId, nextConversationId) => {
             pendingSessionConfigRef.current = {
               sessionMode: nextMode,
-              knowledgeBaseId: nextKnowledgeBaseId,
               agentProfileId: nextAgentProfileId,
               conversationId: nextConversationId,
               dispatchAgent: true,

@@ -75,6 +75,19 @@ class FileUpdatePayload(BaseModel):
     category_id: Optional[str] = None
 
 
+class RewriteMessagePayload(BaseModel):
+    role: str
+    content: str
+
+
+class FileRewritePayload(BaseModel):
+    instruction: str = Field(min_length=1, max_length=4000)
+    content: str
+    file_name: str = Field(min_length=1, max_length=255)
+    history: list[RewriteMessagePayload] = Field(default_factory=list)
+    selected_text: Optional[str] = None
+
+
 class ChatModelProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider: str = "openai_compatible"
@@ -408,6 +421,30 @@ def update_file(kb_id: str, file_id: str, payload: FileUpdatePayload):
     if file_record is None:
         raise HTTPException(status_code=404, detail="File not found")
     return {"file": file_record, "job": job_record}
+
+
+@app.post("/knowledge-bases/{kb_id}/files/{file_id}/rewrite")
+def rewrite_file(kb_id: str, file_id: str, payload: FileRewritePayload):
+    try:
+        result = service.rewrite_file(
+            kb_id=kb_id,
+            file_id=file_id,
+            file_name=payload.file_name,
+            content=payload.content,
+            instruction=payload.instruction,
+            history=[item.model_dump() for item in payload.history],
+            selected_text=payload.selected_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"文档辅助对话失败：{exc}") from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return {
+        "reply": result.reply,
+        "candidate_content": result.candidate_content,
+    }
 
 
 @app.delete("/knowledge-bases/{kb_id}/files/{file_id}")

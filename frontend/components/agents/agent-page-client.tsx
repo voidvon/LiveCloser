@@ -315,7 +315,7 @@ export function AgentPageClient() {
           </Surface>
         ) : null}
 
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="mb-6 space-y-4">
           <div>
             <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">智能体</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">智能体列表</h1>
@@ -324,7 +324,7 @@ export function AgentPageClient() {
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"
