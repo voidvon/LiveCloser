@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
@@ -42,6 +42,7 @@ export function ViewController({
 }: ViewControllerProps) {
   const { isConnected, start, end } = useSessionContext();
   const { resolvedTheme } = useTheme();
+  const previousConnectedRef = useRef(isConnected);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseOption[]>([]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileOption[]>([]);
 
@@ -83,6 +84,15 @@ export function ViewController({
       onActiveAgentProfileIdChange(agentProfiles[0].id);
     }
   }, [activeAgentProfileId, activeConversationId, agentProfiles, onActiveAgentProfileIdChange]);
+
+  useEffect(() => {
+    const previouslyConnected = previousConnectedRef.current;
+    previousConnectedRef.current = isConnected;
+
+    if (previouslyConnected && !isConnected && sessionMode === 'voice') {
+      onSessionModeChange('text');
+    }
+  }, [isConnected, onSessionModeChange, sessionMode]);
 
   const handleStartTextChat = (conversationId: string | null) => {
     if (!appConfig.sessionStartEnabled) {

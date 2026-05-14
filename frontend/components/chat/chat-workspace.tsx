@@ -391,7 +391,7 @@ export function ChatWorkspace({
   }, [activeConversationId, onForceEndSession, sessionActive, sessionMode]);
 
   async function loadConversations(options: { showLoading?: boolean } = {}) {
-    const { showLoading = true } = options;
+    const { showLoading = false } = options;
     try {
       if (showLoading) {
         setLoadingConversations(true);
@@ -900,7 +900,7 @@ export function ChatWorkspace({
                           type="button"
                           variant="ghost"
                           size="icon-xs"
-                          className="rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-300"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/20 rounded-full"
                           aria-label={`删除 ${conversation.title}`}
                           onClick={(event) => {
                             event.stopPropagation();

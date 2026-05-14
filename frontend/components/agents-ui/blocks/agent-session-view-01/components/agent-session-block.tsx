@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { Phone, TextCursorInput } from 'lucide-react';
-import { AnimatePresence, type MotionProps, motion } from 'motion/react';
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import {
   AgentChatTranscript,
@@ -12,82 +11,11 @@ import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
-import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
-
-const MotionMessage = motion.create(Shimmer);
-
-const BOTTOM_VIEW_MOTION_PROPS: MotionProps = {
-  variants: {
-    visible: {
-      opacity: 1,
-      translateY: '0%',
-    },
-    hidden: {
-      opacity: 0,
-      translateY: '100%',
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
-  transition: {
-    duration: 0.3,
-    delay: 0.5,
-    ease: 'easeOut',
-  },
-};
-
-const CHAT_MOTION_PROPS: MotionProps = {
-  variants: {
-    hidden: {
-      opacity: 0,
-      transition: {
-        ease: 'easeOut',
-        duration: 0.3,
-      },
-    },
-    visible: {
-      opacity: 1,
-      transition: {
-        delay: 0.2,
-        ease: 'easeOut',
-        duration: 0.3,
-      },
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
-};
-
-const SHIMMER_MOTION_PROPS: MotionProps = {
-  variants: {
-    visible: {
-      opacity: 1,
-      transition: {
-        ease: 'easeIn',
-        duration: 0.5,
-        delay: 0.8,
-      },
-    },
-    hidden: {
-      opacity: 0,
-      transition: {
-        ease: 'easeIn',
-        duration: 0.5,
-        delay: 0,
-      },
-    },
-  },
-  initial: 'hidden',
-  animate: 'visible',
-  exit: 'hidden',
-};
 
 interface FadeProps {
   top?: boolean;
@@ -216,6 +144,9 @@ export function AgentSessionView_01({
 }: React.ComponentProps<'section'> & AgentSessionView_01Props) {
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
+  void activeConversationTitle;
+  void preConnectMessage;
+  void isPreConnectBufferEnabled;
   const isConnected = session.isConnected;
   const [chatOpen, setChatOpen] = useState(initialChatOpen);
   const { state: agentState } = useAgent();
@@ -259,141 +190,88 @@ export function AgentSessionView_01({
           screenShare: supportsScreenShare,
         };
 
-  const hasTopAlert = Boolean(viewError || startDisabledReason);
+  const isVoiceMode = sessionMode === 'voice';
+  const effectiveChatOpen = isVoiceMode ? chatOpen : true;
 
-  const transcriptPanelClassName =
-    sessionMode === 'voice'
-      ? cn(
-          'mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 md:[&>div>div]:px-6',
-          hasTopAlert ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24' : '[&>div>div]:pt-6'
-        )
-      : 'h-full min-h-0 [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6';
-
-  if (sessionMode === 'text') {
+  function renderStartActions(className: string) {
     return (
-      <section
-        ref={ref}
-        className={cn(
-          'relative z-10 flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden',
-          className
-        )}
-        {...props}
-      >
-        {viewError ? (
-          <div className="px-5 pt-4">
-            <Alert variant="destructive">
-              <AlertTitle>操作失败</AlertTitle>
-              <AlertDescription>{viewError}</AlertDescription>
-            </Alert>
-          </div>
-        ) : null}
+      <div className={className}>
+        <Surface
+          className="pointer-events-auto flex min-w-0 flex-row gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
+          variant="overlay"
+          radius="full"
+        >
+          <Button
+            variant="outline"
+            onClick={onStartTextChat}
+            disabled={startDisabled}
+            className="min-w-0 flex-1 rounded-full px-3"
+          >
+            <TextCursorInput className="mr-2 size-4" />
+            消息对话
+          </Button>
+          <Button
+            onClick={onStartVoiceChat}
+            disabled={startDisabled}
+            className="min-w-0 flex-1 rounded-full px-3"
+          >
+            <Phone className="mr-2 size-4" />
+            语音对话
+          </Button>
+        </Surface>
+      </div>
+    );
+  }
 
-        {startDisabledReason ? (
-          <div className="px-5 pt-4">
-            <Alert>
-              <AlertTitle>当前无法启动会话</AlertTitle>
-              <AlertDescription>{startDisabledReason}</AlertDescription>
-            </Alert>
-          </div>
-        ) : null}
-
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-4 md:px-8 md:pt-6">
-          <div className="mb-4 shrink-0">
-            <p className="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
-              消息会话
-            </p>
-            <h2 className="mt-2 truncate text-2xl font-semibold tracking-tight">
-              {activeConversationTitle ?? '请选择或新建会话'}
-            </h2>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {!activeConversationId ? (
-              <div className="text-muted-foreground flex h-full min-h-[240px] items-center justify-center px-6 text-sm">
-                先从左侧新建或选择一个会话。
-              </div>
-            ) : loadingMessages ? (
-              <div className="text-muted-foreground flex h-full min-h-[240px] items-center justify-center px-6 text-sm">
-                正在加载历史消息…
-              </div>
-            ) : transcriptHistory.length === 0 && isPreSession ? (
-              <div className="text-muted-foreground flex h-full min-h-[240px] items-center justify-center px-6 text-sm">
-                当前会话还没有历史消息，点击下方按钮开始。
-              </div>
-            ) : isPreSession ? (
-              <div className="h-full min-h-0">
-                <AgentChatTranscript
-                  agentState={undefined}
-                  messages={[]}
-                  persistedMessages={transcriptHistory}
-                  className="h-full min-h-0 [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6"
-                />
-              </div>
-            ) : (
-              <div className="h-full min-h-0">
-                <AgentChatTranscript
-                  agentState={agentState}
-                  messages={isPreSession ? [] : messages}
-                  persistedMessages={transcriptHistory}
-                  className={transcriptPanelClassName}
-                  scrollStorageKey={transcriptScrollStorageKey}
-                />
-              </div>
-            )}
-          </div>
+  function renderTranscriptContent() {
+    if (!activeConversationId) {
+      return (
+        <div className="text-muted-foreground flex h-full min-h-[240px] w-full items-center justify-center px-6 text-sm">
+          先从左侧新建或选择一个会话。
         </div>
+      );
+    }
 
-        <div className="relative shrink-0 px-4 pt-3 pb-4 md:px-8 md:pb-8">
-          {isPreSession ? (
-            <div className="pointer-events-none absolute inset-x-4 bottom-[60px] z-[80] flex justify-center md:inset-x-8 md:bottom-[72px]">
-              <Surface
-                className="pointer-events-auto flex min-w-0 flex-row gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
-                variant="overlay"
-                radius="full"
-              >
-                <Button
-                  variant="outline"
-                  onClick={onStartTextChat}
-                  disabled={startDisabled}
-                  className="min-w-0 flex-1 rounded-full px-3"
-                >
-                  <TextCursorInput className="mr-2 size-4" />
-                  消息对话
-                </Button>
-                <Button
-                  onClick={onStartVoiceChat}
-                  disabled={startDisabled}
-                  className="min-w-0 flex-1 rounded-full px-3"
-                >
-                  <Phone className="mr-2 size-4" />
-                  语音对话
-                </Button>
-              </Surface>
-            </div>
-          ) : null}
-          <AgentControlBar
-            variant="livekit"
-            controls={controls}
-            isChatOpen
-            isConnected={session.isConnected}
-            disabled={isPreSession}
-            onDisconnect={session.end}
-          />
+    if (loadingMessages) {
+      return (
+        <div className="text-muted-foreground flex h-full min-h-[240px] w-full items-center justify-center px-6 text-sm">
+          正在加载历史消息…
         </div>
-      </section>
+      );
+    }
+
+    if (transcriptHistory.length === 0 && isPreSession) {
+      return (
+        <div className="text-muted-foreground flex h-full min-h-[240px] w-full items-center justify-center px-6 text-sm">
+          当前会话还没有历史消息，点击下方按钮开始。
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full min-h-0 w-full">
+        <AgentChatTranscript
+          agentState={isPreSession ? undefined : agentState}
+          messages={isPreSession ? [] : messages}
+          persistedMessages={transcriptHistory}
+          className="h-full min-h-0 w-full [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:py-6 md:[&>div>div]:px-6"
+          scrollStorageKey={transcriptScrollStorageKey}
+        />
+      </div>
     );
   }
 
   return (
     <section
       ref={ref}
-      className={cn('relative z-10 h-full max-h-full min-h-0 w-full overflow-hidden', className)}
+      className={cn(
+        'relative z-10 flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden',
+        className
+      )}
       {...props}
     >
-      <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
-
       {viewError ? (
-        <div className="absolute inset-x-5 top-5 z-30">
+        <div className="shrink-0 px-5 pt-4">
           <Alert variant="destructive">
             <AlertTitle>操作失败</AlertTitle>
             <AlertDescription>{viewError}</AlertDescription>
@@ -402,7 +280,7 @@ export function AgentSessionView_01({
       ) : null}
 
       {startDisabledReason ? (
-        <div className="absolute inset-x-5 top-5 z-30">
+        <div className="shrink-0 px-5 pt-4">
           <Alert>
             <AlertTitle>当前无法启动会话</AlertTitle>
             <AlertDescription>{startDisabledReason}</AlertDescription>
@@ -410,127 +288,48 @@ export function AgentSessionView_01({
         </div>
       ) : null}
 
-      {/* transcript */}
-
-      <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
-        <AnimatePresence>
-          {chatOpen && (
-            <motion.div
-              {...CHAT_MOTION_PROPS}
-              className="flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
-            >
-              {!activeConversationId ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
-                  先从左侧新建或选择一个会话。
-                </div>
-              ) : loadingMessages ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
-                  正在加载历史消息…
-                </div>
-              ) : transcriptHistory.length === 0 && isPreSession ? (
-                <div className="text-muted-foreground mx-auto flex h-full w-full max-w-2xl items-center justify-center px-6 pt-6 text-sm md:px-0">
-                  当前会话还没有历史消息，点击下方按钮开始。
-                </div>
-              ) : isPreSession ? (
-                <div className="mx-auto h-full min-h-0 w-full max-w-2xl">
-                  <AgentChatTranscript
-                    agentState={undefined}
-                    messages={[]}
-                    persistedMessages={transcriptHistory}
-                    className={cn(
-                      'mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px]',
-                      hasTopAlert ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24' : '[&>div>div]:pt-6'
-                    )}
-                  />
-                </div>
-              ) : (
-                <div className="mx-auto h-full min-h-0 w-full max-w-2xl">
-                  <AgentChatTranscript
-                    agentState={agentState}
-                    messages={messages}
-                    persistedMessages={transcriptHistory}
-                    className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
-                  />
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-      {/* Tile layout */}
-      <TileLayout
-        chatOpen={chatOpen}
-        audioVisualizerType={audioVisualizerType}
-        audioVisualizerColor={audioVisualizerColor}
-        audioVisualizerColorShift={audioVisualizerColorShift}
-        audioVisualizerBarCount={audioVisualizerBarCount}
-        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-      />
-      {/* Bottom */}
-      <motion.div
-        {...BOTTOM_VIEW_MOTION_PROPS}
-        className="absolute inset-x-3 bottom-0 z-50 md:inset-x-12"
-      >
-        {isPreSession ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-[58px] z-[80] flex justify-center">
-            <Surface
-              className="pointer-events-auto flex min-w-0 flex-row gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
-              variant="overlay"
-              radius="full"
-            >
-              <Button
-                variant="outline"
-                onClick={onStartTextChat}
-                disabled={startDisabled}
-                className="min-w-0 flex-1 rounded-full px-3"
-              >
-                <TextCursorInput className="mr-2 size-4" />
-                消息对话
-              </Button>
-              <Button
-                onClick={onStartVoiceChat}
-                disabled={startDisabled}
-                className="min-w-0 flex-1 rounded-full px-3"
-              >
-                <Phone className="mr-2 size-4" />
-                语音对话
-              </Button>
-            </Surface>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-4 md:px-8 md:pt-6">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="h-full min-h-0">
+            {effectiveChatOpen ? (
+              <div className="h-full min-h-0 w-full">{renderTranscriptContent()}</div>
+            ) : null}
           </div>
-        ) : null}
-        {/* Pre-connect message */}
-        {!isPreSession && isPreConnectBufferEnabled && (
-          <AnimatePresence>
-            {messages.length === 0 && (
-              <MotionMessage
-                key="pre-connect-message"
-                duration={2}
-                aria-hidden={messages.length > 0}
-                {...SHIMMER_MOTION_PROPS}
-                className="pointer-events-none mx-auto block w-full max-w-2xl pb-4 text-center text-sm font-semibold"
-              >
-                {preConnectMessage}
-              </MotionMessage>
-            )}
-          </AnimatePresence>
-        )}
-        <div className="bg-background/72 relative mx-auto max-w-2xl pb-3 backdrop-blur-xl md:pb-12">
-          <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />
-          <AgentControlBar
-            variant="livekit"
-            controls={controls}
-            isChatOpen={chatOpen}
-            isConnected={session.isConnected}
-            disabled={isPreSession}
-            onDisconnect={session.end}
-            onIsChatOpenChange={setChatOpen}
-          />
+
+          {isVoiceMode ? (
+            <TileLayout
+              chatOpen={chatOpen}
+              audioVisualizerType={audioVisualizerType}
+              audioVisualizerColor={audioVisualizerColor}
+              audioVisualizerColorShift={audioVisualizerColorShift}
+              audioVisualizerBarCount={audioVisualizerBarCount}
+              audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
+              audioVisualizerRadialRadius={audioVisualizerRadialRadius}
+              audioVisualizerGridRowCount={audioVisualizerGridRowCount}
+              audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
+              audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
+            />
+          ) : null}
         </div>
-      </motion.div>
+      </div>
+
+      <div className="relative shrink-0 px-4 pt-3 pb-4 md:px-8 md:pb-8">
+        {isPreSession
+          ? renderStartActions(
+              'pointer-events-none absolute inset-x-4 bottom-[60px] z-[80] flex justify-center md:inset-x-8 md:bottom-[72px]'
+            )
+          : null}
+
+        <AgentControlBar
+          variant="livekit"
+          controls={controls}
+          isChatOpen={effectiveChatOpen}
+          isConnected={session.isConnected}
+          disabled={isPreSession}
+          onDisconnect={session.end}
+          onIsChatOpenChange={isVoiceMode ? setChatOpen : undefined}
+        />
+      </div>
     </section>
   );
 }
