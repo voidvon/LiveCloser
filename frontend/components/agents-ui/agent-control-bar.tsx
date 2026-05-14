@@ -44,14 +44,12 @@ const LK_TOGGLE_VARIANT_2 = [
 const MOTION_PROPS: MotionProps = {
   variants: {
     hidden: {
-      height: 0,
       opacity: 0,
-      marginBottom: 0,
+      y: -6,
     },
     visible: {
-      height: 'auto',
       opacity: 1,
-      marginBottom: 12,
+      y: 0,
     },
   },
   initial: 'hidden',
@@ -114,7 +112,7 @@ function AgentChatInput({
   }, [chatOpen]);
 
   return (
-    <div className={cn('mb-3 flex grow items-end gap-2 rounded-md pl-1 text-sm', className)}>
+    <div className={cn('flex h-full grow items-end gap-2 rounded-md pl-1 text-sm', className)}>
       <textarea
         autoFocus
         ref={inputRef}
@@ -123,7 +121,7 @@ function AgentChatInput({
         placeholder="输入消息..."
         onKeyDown={handleKeyDown}
         onChange={(e) => setMessage(e.target.value)}
-        className="field-sizing-content max-h-16 min-h-8 flex-1 resize-none py-2 [scrollbar-width:thin] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-10 max-h-10 min-h-10 flex-1 resize-none py-2 [scrollbar-width:thin] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       />
       <Button
         size="icon"
@@ -312,8 +310,12 @@ export function AgentControlBar({
       <motion.div
         {...MOTION_PROPS}
         inert={!(isChatOpen || isChatOpenUncontrolled)}
+        aria-hidden={!(isChatOpen || isChatOpenUncontrolled)}
         animate={isChatOpen || isChatOpenUncontrolled ? 'visible' : 'hidden'}
-        className="border-border/60 flex w-full items-start overflow-hidden border-b"
+        className={cn(
+          'border-border/60 mb-3 flex h-14 w-full items-start overflow-hidden border-b',
+          !(isChatOpen || isChatOpenUncontrolled) && 'pointer-events-none'
+        )}
       >
         <AgentChatInput
           chatOpen={isChatOpen || isChatOpenUncontrolled}

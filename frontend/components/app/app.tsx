@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { TokenSource } from 'livekit-client';
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
@@ -25,7 +26,6 @@ function AppSetup() {
 
 interface AppProps {
   appConfig: AppConfig;
-  initialConversationId?: string | null;
 }
 
 type PendingSessionConfig = {
@@ -35,12 +35,11 @@ type PendingSessionConfig = {
   dispatchAgent: boolean;
 };
 
-export function App({ appConfig, initialConversationId = null }: AppProps) {
+export function App({ appConfig }: AppProps) {
+  const pathname = usePathname();
   const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('text');
   const [activeAgentProfileId, setActiveAgentProfileId] = useState<string | null>(null);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    initialConversationId
-  );
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [persistedMessages, setPersistedMessages] = useState<ConversationMessageRecord[]>([]);
   const pendingSessionConfigRef = useRef<PendingSessionConfig>({
     sessionMode: 'text',
@@ -76,8 +75,9 @@ export function App({ appConfig, initialConversationId = null }: AppProps) {
   );
 
   useEffect(() => {
-    setActiveConversationId(initialConversationId);
-  }, [initialConversationId]);
+    const conversationMatch = pathname.match(/^\/conversations\/([^/]+)$/);
+    setActiveConversationId(conversationMatch ? decodeURIComponent(conversationMatch[1]) : null);
+  }, [pathname]);
 
   return (
     <AgentSessionProvider session={session} muted={sessionMode === 'text'}>
