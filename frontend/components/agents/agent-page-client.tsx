@@ -424,13 +424,17 @@ export function AgentPageClient() {
           closeDialog();
         }}
       >
-        <DialogContent className="h-[60vh] max-h-[90vh] max-w-5xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        <DialogContent className="h-[min(90vh,720px)] max-h-[90vh] max-w-5xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
           <DialogHeader>
             <DialogTitle>{editingProfileId ? '编辑智能体' : '新增智能体'}</DialogTitle>
           </DialogHeader>
 
           <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-            <Surface className="h-fit p-2 lg:h-full lg:overflow-y-auto" variant="muted" radius="lg">
+            <Surface
+              className="hidden h-fit p-2 lg:block lg:h-full lg:overflow-y-auto"
+              variant="muted"
+              radius="lg"
+            >
               <div className="mb-2 px-2 pt-2">
                 <p className="text-xs font-medium tracking-[0.18em] text-slate-500 uppercase">
                   配置分类
@@ -460,6 +464,27 @@ export function AgentPageClient() {
             </Surface>
 
             <div className="flex min-h-0 flex-col gap-4">
+              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 lg:hidden">
+                {EDITOR_SECTIONS.map((section) => {
+                  const active = section.id === activeSection;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => setActiveSection(section.id)}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors',
+                        active
+                          ? 'border-primary/30 bg-primary/10 text-foreground'
+                          : 'text-muted-foreground border-border/70 bg-background/70'
+                      )}
+                    >
+                      {section.label}
+                    </button>
+                  );
+                })}
+              </div>
               <Surface className="min-h-0 overflow-y-auto px-5 py-5" radius="lg">
                 {activeSection === 'general' ? (
                   <div className="space-y-4">

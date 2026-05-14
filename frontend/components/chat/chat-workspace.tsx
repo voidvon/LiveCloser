@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Check, MessageSquarePlus, Pencil, RefreshCcw, Trash2, X } from 'lucide-react';
 import {
   AgentSessionView_01,
@@ -9,6 +10,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { FieldSelect } from '@/components/ui/field-select';
 import { InteractiveCard } from '@/components/ui/interactive-card';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Surface } from '@/components/ui/surface';
 import { cn } from '@/lib/shadcn/utils';
 import type {
@@ -52,6 +60,9 @@ interface ChatWorkspaceProps {
   >;
   className?: string;
 }
+
+let conversationListCache: ConversationRecord[] | null = null;
+let conversationMessageCacheStore: Record<string, ConversationMessageRecord[]> = {};
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' });
@@ -149,12 +160,6 @@ function getConversationStatusBadgeClass(tone: 'muted' | 'warning' | 'danger'): 
   return 'border-border/70 bg-background/70 text-muted-foreground';
 }
 
-type ContextMenuState = {
-  conversationId: string;
-  x: number;
-  y: number;
-} | null;
-
 export function ChatWorkspace({
   agentProfiles,
   knowledgeBases,
@@ -162,7 +167,6 @@ export function ChatWorkspace({
   onActiveAgentProfileIdChange,
   activeConversationId,
   onActiveConversationIdChange,
-  persistedMessages,
   onPersistedMessagesChange,
   onStartTextChat,
   onStartVoiceChat,
@@ -174,28 +178,76 @@ export function ChatWorkspace({
   sessionViewConfig,
   className,
 }: ChatWorkspaceProps) {
-  const [conversations, setConversations] = useState<ConversationRecord[]>([]);
+  const hasInitialConversationListCache = conversationListCache !== null;
+  const pathname = usePathname();
+  const router = useRouter();
+  const initialDocumentTitleRef = useRef<string>('');
+  const sidebarScrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const sidebarScrollRestorePendingRef = useRef(true);
+  const conversationListLoadedRef = useRef(hasInitialConversationListCache);
+  const [conversations, setConversations] = useState<ConversationRecord[]>(
+    () => conversationListCache ?? []
+  );
   const [displayedConversationId, setDisplayedConversationId] = useState<string | null>(null);
   const [displayedConversationTitle, setDisplayedConversationTitle] = useState<string | null>(null);
   const [displayedMessages, setDisplayedMessages] = useState<ConversationMessageRecord[]>([]);
-  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessageRecord[]>>({});
-  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [messageCache, setMessageCache] = useState<Record<string, ConversationMessageRecord[]>>(
+    () => conversationMessageCacheStore
+  );
+  const [loadingConversations, setLoadingConversations] = useState(
+    () => !hasInitialConversationListCache
+  );
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [savingConversationId, setSavingConversationId] = useState<string | null>(null);
   const [renamingConversationId, setRenamingConversationId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previousSessionActiveRef = useRef(sessionActive);
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const loadRequestIdRef = useRef(0);
   const autoEndingConversationIdRef = useRef<string | null>(null);
   const statusPollInFlightRef = useRef(false);
 
   useEffect(() => {
-    void loadConversations();
+    initialDocumentTitleRef.current = document.title;
+
+    return () => {
+      document.title = initialDocumentTitleRef.current;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!conversationListLoadedRef.current) {
+      return;
+    }
+    conversationListCache = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    conversationMessageCacheStore = messageCache;
+  }, [messageCache]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1023px)');
+    const handleChange = (event?: MediaQueryListEvent) => {
+      setIsMobileViewport(event ? event.matches : mediaQuery.matches);
+    };
+
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  // Intentional one-time bootstrap load for the conversation list.
+  useEffect(() => {
+    void loadConversations({ showLoading: !hasInitialConversationListCache });
+  }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -205,7 +257,7 @@ export function ChatWorkspace({
       onPersistedMessagesChange([]);
       return;
     }
-  }, [activeConversationId]);
+  }, [activeConversationId, onPersistedMessagesChange]);
 
   const activeAgentProfile = useMemo(
     () => agentProfiles.find((item) => item.id === activeAgentProfileId) ?? null,
@@ -225,8 +277,13 @@ export function ChatWorkspace({
     if (!activeAgentProfileId) {
       return conversations;
     }
-    return conversations.filter((conversation) => conversation.agent_profile_id === activeAgentProfileId);
+    return conversations.filter(
+      (conversation) => conversation.agent_profile_id === activeAgentProfileId
+    );
   }, [activeAgentProfileId, conversations]);
+  const isConversationRoute = pathname.startsWith('/conversations/');
+  const mobileConversationOpen =
+    isMobileViewport && isConversationRoute && Boolean(activeConversationId);
 
   useEffect(() => {
     if (!activeConversationId || !activeAgentProfileId || sessionActive) {
@@ -242,7 +299,6 @@ export function ChatWorkspace({
     setDisplayedConversationTitle(null);
     setDisplayedMessages([]);
     onPersistedMessagesChange([]);
-    setContextMenu(null);
     if (renamingConversationId) {
       cancelRenameConversation();
     }
@@ -257,15 +313,16 @@ export function ChatWorkspace({
   ]);
 
   useEffect(() => {
-    const visibleConversationIds = new Set(visibleConversations.map((conversation) => conversation.id));
-    if (contextMenu && !visibleConversationIds.has(contextMenu.conversationId)) {
-      setContextMenu(null);
-    }
+    const visibleConversationIds = new Set(
+      visibleConversations.map((conversation) => conversation.id)
+    );
     if (renamingConversationId && !visibleConversationIds.has(renamingConversationId)) {
       cancelRenameConversation();
     }
-  }, [contextMenu, renamingConversationId, visibleConversations]);
+  }, [renamingConversationId, visibleConversations]);
 
+  /* eslint-disable react-hooks/exhaustive-deps */
+  // Intentional session recovery refresh after the active voice session ends.
   useEffect(() => {
     const previousSessionActive = previousSessionActiveRef.current;
     previousSessionActiveRef.current = sessionActive;
@@ -281,6 +338,7 @@ export function ChatWorkspace({
       }
     }
   }, [activeConversationId, sessionActive]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (!sessionActive || sessionMode !== 'voice' || !activeConversationId || !onForceEndSession) {
@@ -332,40 +390,19 @@ export function ChatWorkspace({
     };
   }, [activeConversationId, onForceEndSession, sessionActive, sessionMode]);
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (contextMenuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-      setContextMenu(null);
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setContextMenu(null);
-      }
-    }
-
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [contextMenu]);
-
-  async function loadConversations() {
+  async function loadConversations(options: { showLoading?: boolean } = {}) {
+    const { showLoading = true } = options;
     try {
-      setLoadingConversations(true);
+      if (showLoading) {
+        setLoadingConversations(true);
+      }
       setError(null);
       const data = await getJson<ConversationRecord[]>('/api/chat/conversations');
+      conversationListLoadedRef.current = true;
       setConversations(data);
       if (activeConversationId && !data.some((item) => item.id === activeConversationId)) {
         onActiveConversationIdChange(null);
+        router.replace('/', { scroll: false });
       }
       if (renamingConversationId && !data.some((item) => item.id === renamingConversationId)) {
         setRenamingConversationId(null);
@@ -374,73 +411,77 @@ export function ChatWorkspace({
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载会话列表失败');
     } finally {
-      setLoadingConversations(false);
+      if (showLoading) {
+        setLoadingConversations(false);
+      }
     }
   }
 
-  async function fetchMessages(conversationId: string) {
+  const fetchMessages = useCallback((conversationId: string) => {
     return getJson<ConversationMessageRecord[]>(
       `/api/chat/conversations/${conversationId}/messages`
     );
-  }
+  }, []);
 
-  async function loadMessages(
-    conversationId: string,
-    options: {
-      force?: boolean;
-      showLoading?: boolean;
-      updateDisplayed?: boolean;
-    } = {}
-  ) {
-    const { force = false, showLoading = true, updateDisplayed = true } = options;
-    const cachedMessages = messageCache[conversationId];
-    if (!force && cachedMessages) {
-      if (updateDisplayed) {
-        setDisplayedMessages(cachedMessages);
-        onPersistedMessagesChange(cachedMessages);
+  const loadMessages = useCallback(
+    async function loadMessagesCallback(
+      conversationId: string,
+      options: {
+        force?: boolean;
+        showLoading?: boolean;
+        updateDisplayed?: boolean;
+      } = {}
+    ) {
+      const { force = false, showLoading = true, updateDisplayed = true } = options;
+      const cachedMessages = messageCache[conversationId];
+      if (!force && cachedMessages) {
+        if (updateDisplayed) {
+          setDisplayedMessages(cachedMessages);
+          onPersistedMessagesChange(cachedMessages);
+        }
+        return cachedMessages;
       }
-      return cachedMessages;
-    }
 
-    const requestId = ++loadRequestIdRef.current;
-    try {
-      if (showLoading) {
-        setLoadingMessages(true);
-      }
-      setError(null);
-      const data = await fetchMessages(conversationId);
-      if (requestId !== loadRequestIdRef.current) {
+      const requestId = ++loadRequestIdRef.current;
+      try {
+        if (showLoading) {
+          setLoadingMessages(true);
+        }
+        setError(null);
+        const data = await fetchMessages(conversationId);
+        if (requestId !== loadRequestIdRef.current) {
+          return data;
+        }
+        setMessageCache((current) => ({
+          ...current,
+          [conversationId]: data,
+        }));
+        if (updateDisplayed) {
+          const conversation = conversations.find((item) => item.id === conversationId) ?? null;
+          setDisplayedConversationId(conversationId);
+          setDisplayedConversationTitle(conversation?.title ?? null);
+          setDisplayedMessages(data);
+          onPersistedMessagesChange(data);
+        }
         return data;
+      } catch (err: unknown) {
+        if (requestId === loadRequestIdRef.current) {
+          setError(err instanceof Error ? err.message : '加载会话消息失败');
+        }
+        throw err;
+      } finally {
+        if (showLoading && requestId === loadRequestIdRef.current) {
+          setLoadingMessages(false);
+        }
       }
-      setMessageCache((current) => ({
-        ...current,
-        [conversationId]: data,
-      }));
-      if (updateDisplayed) {
-        const conversation = conversations.find((item) => item.id === conversationId) ?? null;
-        setDisplayedConversationId(conversationId);
-        setDisplayedConversationTitle(conversation?.title ?? null);
-        setDisplayedMessages(data);
-        onPersistedMessagesChange(data);
-      }
-      return data;
-    } catch (err: unknown) {
-      if (requestId === loadRequestIdRef.current) {
-        setError(err instanceof Error ? err.message : '加载会话消息失败');
-      }
-      throw err;
-    } finally {
-      if (showLoading && requestId === loadRequestIdRef.current) {
-        setLoadingMessages(false);
-      }
-    }
-  }
+    },
+    [conversations, fetchMessages, messageCache, onPersistedMessagesChange]
+  );
 
   async function handleCreateConversation() {
     try {
       setCreatingConversation(true);
       setError(null);
-      setContextMenu(null);
       const conversation = await postJson<ConversationRecord>('/api/chat/conversations', {
         title: '新会话',
         agent_profile_id: activeAgentProfileId,
@@ -455,7 +496,9 @@ export function ChatWorkspace({
       setDisplayedConversationTitle(conversation.title);
       setDisplayedMessages([]);
       onActiveConversationIdChange(conversation.id);
+      onActiveAgentProfileIdChange(conversation.agent_profile_id ?? activeAgentProfileId);
       onPersistedMessagesChange([]);
+      router.push(`/conversations/${conversation.id}`, { scroll: false });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '创建会话失败');
     } finally {
@@ -470,6 +513,7 @@ export function ChatWorkspace({
     const conversation = conversations.find((item) => item.id === conversationId) ?? null;
     onActiveConversationIdChange(conversationId);
     onActiveAgentProfileIdChange(conversation?.agent_profile_id ?? null);
+    router.push(`/conversations/${conversationId}`, { scroll: false });
     const cachedMessages = messageCache[conversationId];
     if (cachedMessages) {
       setError(null);
@@ -487,25 +531,7 @@ export function ChatWorkspace({
     });
   }
 
-  function handleConversationContextMenu(
-    event: React.MouseEvent<HTMLElement>,
-    conversation: ConversationRecord
-  ) {
-    if (sessionActive) {
-      return;
-    }
-    event.preventDefault();
-    const menuWidth = 184;
-    const menuHeight = 112;
-    setContextMenu({
-      conversationId: conversation.id,
-      x: Math.min(event.clientX, window.innerWidth - menuWidth),
-      y: Math.min(event.clientY, window.innerHeight - menuHeight),
-    });
-  }
-
   function startRenameConversation(conversation: ConversationRecord) {
-    setContextMenu(null);
     setRenamingConversationId(conversation.id);
     setRenameDraft(conversation.title);
   }
@@ -534,6 +560,9 @@ export function ChatWorkspace({
       setConversations((current) =>
         current.map((item) => (item.id === conversationId ? updated : item))
       );
+      if (displayedConversationId === conversationId) {
+        setDisplayedConversationTitle(updated.title);
+      }
       setRenamingConversationId(null);
       setRenameDraft('');
     } catch (err: unknown) {
@@ -544,7 +573,6 @@ export function ChatWorkspace({
   }
 
   async function handleDeleteConversation(conversation: ConversationRecord) {
-    setContextMenu(null);
     const confirmed = window.confirm(`确认删除会话“${conversation.title}”吗？删除后不可恢复。`);
     if (!confirmed) {
       return;
@@ -566,6 +594,7 @@ export function ChatWorkspace({
         setDisplayedConversationTitle(null);
         setDisplayedMessages([]);
         onPersistedMessagesChange([]);
+        router.replace('/', { scroll: false });
       }
       if (renamingConversationId === conversation.id) {
         cancelRenameConversation();
@@ -577,13 +606,6 @@ export function ChatWorkspace({
     }
   }
 
-  const contextMenuConversation = useMemo(
-    () =>
-      contextMenu
-        ? (conversations.find((item) => item.id === contextMenu.conversationId) ?? null)
-        : null,
-    [contextMenu, conversations]
-  );
   const displayedConversation = useMemo(
     () =>
       displayedConversationId
@@ -596,198 +618,322 @@ export function ChatWorkspace({
     [displayedConversation]
   );
 
-  return (
-    <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
-      <Surface
-        className="flex w-full shrink-0 flex-col overflow-hidden lg:w-[320px]"
-        variant="sidebar"
+  useEffect(() => {
+    if (!activeConversationId) {
+      return;
+    }
+
+    const activeConversation =
+      conversations.find((item) => item.id === activeConversationId) ?? null;
+    if (!activeConversation) {
+      if (!loadingConversations) {
+        onActiveConversationIdChange(null);
+        router.replace('/', { scroll: false });
+      }
+      return;
+    }
+
+    if (activeConversation.agent_profile_id !== activeAgentProfileId) {
+      onActiveAgentProfileIdChange(activeConversation.agent_profile_id ?? null);
+    }
+
+    setDisplayedConversationId(activeConversation.id);
+    setDisplayedConversationTitle(activeConversation.title);
+
+    const cachedMessages = messageCache[activeConversation.id];
+    if (cachedMessages) {
+      setError(null);
+      setLoadingMessages(false);
+      setDisplayedMessages(cachedMessages);
+      onPersistedMessagesChange(cachedMessages);
+      return;
+    }
+
+    void loadMessages(activeConversation.id, {
+      force: true,
+      showLoading: true,
+      updateDisplayed: true,
+    });
+  }, [
+    activeAgentProfileId,
+    activeConversationId,
+    conversations,
+    loadingConversations,
+    messageCache,
+    onActiveAgentProfileIdChange,
+    onActiveConversationIdChange,
+    onPersistedMessagesChange,
+    router,
+    loadMessages,
+  ]);
+
+  useEffect(() => {
+    const baseTitle = initialDocumentTitleRef.current;
+    document.title = displayedConversationTitle
+      ? `${displayedConversationTitle} | ${baseTitle}`
+      : baseTitle;
+  }, [displayedConversationTitle]);
+
+  useEffect(() => {
+    if (!sidebarScrollRestorePendingRef.current) {
+      return;
+    }
+
+    const container = sidebarScrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const storedValue = window.sessionStorage.getItem('chat-sidebar-scroll');
+      container.scrollTop = storedValue ? Number(storedValue) || 0 : 0;
+      sidebarScrollRestorePendingRef.current = false;
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [visibleConversations.length]);
+  const renderSidebarPanel = (mode: 'desktop' | 'mobile') => (
+    <Surface
+      className={cn(
+        'flex w-full shrink-0 flex-col overflow-hidden',
+        mode === 'desktop' ? 'hidden lg:flex lg:w-[320px]' : 'min-h-0 flex-1 lg:hidden'
+      )}
+      variant="sidebar"
+    >
+      <div className="border-border/70 flex items-center justify-between border-b px-4 py-4">
+        <div>
+          <p className="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
+            会话列表
+          </p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight">历史与继续对话</h2>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            onClick={() => void loadConversations()}
+            disabled={sessionActive}
+          >
+            <RefreshCcw className="size-4" />
+          </Button>
+          <Button
+            size="icon-sm"
+            onClick={() => void handleCreateConversation()}
+            disabled={creatingConversation || sessionActive}
+          >
+            <MessageSquarePlus className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-border/70 space-y-4 border-b px-4 py-4">
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">当前会话智能体</span>
+          <FieldSelect
+            value={activeAgentProfileId ?? ''}
+            onValueChange={(value) => onActiveAgentProfileIdChange(value || null)}
+            disabled={sessionActive}
+            placeholder="系统默认智能体"
+            options={agentProfiles.map((profile) => ({
+              value: profile.id,
+              label: profile.name,
+            }))}
+          />
+          <p className="text-muted-foreground mt-2 text-xs leading-5">
+            {activeAgentKnowledgeBaseNames.length > 0
+              ? `当前智能体将使用：${activeAgentKnowledgeBaseNames.join('、')}`
+              : '当前智能体未绑定知识库，知识库检索不可用。'}
+          </p>
+        </label>
+      </div>
+
+      <div
+        ref={mode === 'desktop' ? sidebarScrollContainerRef : undefined}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        onScroll={(event) => {
+          if (mode !== 'desktop') {
+            return;
+          }
+          window.sessionStorage.setItem(
+            'chat-sidebar-scroll',
+            String(event.currentTarget.scrollTop)
+          );
+        }}
       >
-        <div className="border-border/70 flex items-center justify-between border-b px-4 py-4">
-          <div>
-            <p className="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
-              会话列表
-            </p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight">历史与继续对话</h2>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="icon-sm"
-              variant="outline"
-              onClick={() => void loadConversations()}
-              disabled={sessionActive}
+        <div className="space-y-2">
+          {loadingConversations ? (
+            <Surface
+              className="text-muted-foreground border-dashed px-4 py-6 text-sm"
+              variant="muted"
+              radius="lg"
             >
-              <RefreshCcw className="size-4" />
-            </Button>
-            <Button
-              size="icon-sm"
-              onClick={() => void handleCreateConversation()}
-              disabled={creatingConversation || sessionActive}
+              正在加载会话列表…
+            </Surface>
+          ) : visibleConversations.length === 0 ? (
+            <Surface
+              className="text-muted-foreground border-dashed px-4 py-6 text-sm leading-6"
+              variant="muted"
+              radius="lg"
             >
-              <MessageSquarePlus className="size-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="border-border/70 space-y-4 border-b px-4 py-4">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">当前会话智能体</span>
-            <FieldSelect
-              value={activeAgentProfileId ?? ''}
-              onValueChange={(value) => onActiveAgentProfileIdChange(value || null)}
-              disabled={sessionActive}
-              placeholder="系统默认智能体"
-              options={agentProfiles.map((profile) => ({
-                value: profile.id,
-                label: profile.name,
-              }))}
-            />
-            <p className="text-muted-foreground mt-2 text-xs leading-5">
-              {activeAgentKnowledgeBaseNames.length > 0
-                ? `当前智能体将使用：${activeAgentKnowledgeBaseNames.join('、')}`
-                : '当前智能体未绑定知识库，知识库检索不可用。'}
-            </p>
-          </label>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <div className="space-y-2">
-            {loadingConversations ? (
-              <Surface
-                className="text-muted-foreground border-dashed px-4 py-6 text-sm"
-                variant="muted"
-                radius="lg"
-              >
-                正在加载会话列表…
-              </Surface>
-            ) : visibleConversations.length === 0 ? (
-              <Surface
-                className="text-muted-foreground border-dashed px-4 py-6 text-sm leading-6"
-                variant="muted"
-                radius="lg"
-              >
-                {activeAgentProfile
-                  ? `当前智能体“${activeAgentProfile.name}”下还没有历史会话。先新建一个会话，再开始对话。`
-                  : '还没有历史会话。先新建一个会话，再选择消息或语音方式开始。'}
-              </Surface>
-            ) : (
-              visibleConversations.map((conversation) => {
-                const statusMeta = getConversationStatusMeta(conversation);
-                return renamingConversationId === conversation.id ? (
-                  <InteractiveCard
-                    key={conversation.id}
-                    variant={activeConversationId === conversation.id ? 'selected' : 'default'}
-                  >
-                    <div className="space-y-3">
-                      <input
-                        autoFocus
-                        value={renameDraft}
-                        onChange={(event) => setRenameDraft(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            void submitRenameConversation(conversation.id);
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            cancelRenameConversation();
-                          }
+              {activeAgentProfile
+                ? `当前智能体“${activeAgentProfile.name}”下还没有历史会话。先新建一个会话，再开始对话。`
+                : '还没有历史会话。先新建一个会话，再选择消息或语音方式开始。'}
+            </Surface>
+          ) : (
+            visibleConversations.map((conversation) => {
+              const statusMeta = getConversationStatusMeta(conversation);
+              return renamingConversationId === conversation.id ? (
+                <InteractiveCard
+                  key={conversation.id}
+                  variant={activeConversationId === conversation.id ? 'selected' : 'default'}
+                >
+                  <div className="space-y-3">
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void submitRenameConversation(conversation.id);
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelRenameConversation();
+                        }
+                      }}
+                      className={cn(
+                        'bg-background/70 w-full rounded-xl border px-3 py-2 text-sm outline-none',
+                        activeConversationId === conversation.id
+                          ? 'border-primary/30 text-foreground'
+                          : 'border-border/60'
+                      )}
+                      placeholder="输入会话名称"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          cancelRenameConversation();
                         }}
-                        className={cn(
-                          'bg-background/70 w-full rounded-xl border px-3 py-2 text-sm outline-none',
-                          activeConversationId === conversation.id
-                            ? 'border-primary/30 text-foreground'
-                            : 'border-border/60'
-                        )}
-                        placeholder="输入会话名称"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="ghost"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            cancelRenameConversation();
-                          }}
-                          disabled={savingConversationId === conversation.id}
-                        >
-                          <X className="size-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void submitRenameConversation(conversation.id);
-                          }}
-                          disabled={savingConversationId === conversation.id}
-                        >
-                          <Check className="size-3.5" />
-                        </Button>
-                      </div>
+                        disabled={savingConversationId === conversation.id}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void submitRenameConversation(conversation.id);
+                        }}
+                        disabled={savingConversationId === conversation.id}
+                      >
+                        <Check className="size-3.5" />
+                      </Button>
                     </div>
-                  </InteractiveCard>
-                ) : (
-                  <InteractiveCard
-                    key={conversation.id}
-                    onClick={() => handleSelectConversation(conversation.id)}
-                    onContextMenu={(event) => handleConversationContextMenu(event, conversation)}
-                    role="button"
-                    tabIndex={sessionActive ? -1 : 0}
-                    aria-disabled={sessionActive}
-                    onKeyDown={(event) => {
-                      if (sessionActive) {
-                        return;
-                      }
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        handleSelectConversation(conversation.id);
-                      }
-                    }}
-                    variant={activeConversationId === conversation.id ? 'selected' : 'default'}
-                    className={cn(
-                      'cursor-pointer',
-                      sessionActive && 'cursor-not-allowed opacity-60'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="min-w-0 truncate font-medium">{conversation.title}</p>
+                  </div>
+                </InteractiveCard>
+              ) : (
+                <InteractiveCard
+                  key={conversation.id}
+                  onClick={() => handleSelectConversation(conversation.id)}
+                  role="button"
+                  tabIndex={sessionActive ? -1 : 0}
+                  aria-disabled={sessionActive}
+                  onKeyDown={(event) => {
+                    if (sessionActive) {
+                      return;
+                    }
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSelectConversation(conversation.id);
+                    }
+                  }}
+                  variant={activeConversationId === conversation.id ? 'selected' : 'default'}
+                  className={cn('cursor-pointer', sessionActive && 'cursor-not-allowed opacity-60')}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{conversation.title}</p>
+                      <p
+                        className={cn(
+                          'mt-2 line-clamp-2 text-xs leading-5',
+                          activeConversationId === conversation.id
+                            ? 'text-foreground/75'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {conversation.last_message_preview || '还没有消息'}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-start gap-2">
                       {statusMeta ? (
                         <span
                           className={cn(
-                            'shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em]',
+                            'rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em]',
                             getConversationStatusBadgeClass(statusMeta.tone)
                           )}
                         >
                           {statusMeta.label}
                         </span>
                       ) : null}
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="rounded-full"
+                          aria-label={`重命名 ${conversation.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            startRenameConversation(conversation);
+                          }}
+                          disabled={sessionActive}
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-300"
+                          aria-label={`删除 ${conversation.title}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteConversation(conversation);
+                          }}
+                          disabled={sessionActive || savingConversationId === conversation.id}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                    <p
-                      className={cn(
-                        'mt-2 line-clamp-2 text-xs leading-5',
-                        activeConversationId === conversation.id
-                          ? 'text-foreground/75'
-                          : 'text-muted-foreground'
-                      )}
-                    >
-                      {conversation.last_message_preview || '还没有消息'}
-                    </p>
-                  </InteractiveCard>
-                );
-              })
-            )}
-          </div>
+                  </div>
+                </InteractiveCard>
+              );
+            })
+          )}
         </div>
-      </Surface>
+      </div>
+    </Surface>
+  );
 
-      <Surface className="flex min-h-0 flex-1 flex-col overflow-hidden" variant="panel">
+  const renderConversationPanel = (mode: 'desktop' | 'mobile-sheet') => {
+    const content = (
+      <>
         {displayedConversation ? (
           <div className="border-border/70 border-b px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
+              <div className="min-w-0 pr-10">
                 <p className="truncate text-sm font-medium">
                   {displayedConversationTitle || displayedConversation.title}
+                </p>
+                <p className="text-muted-foreground mt-1 truncate text-xs">
+                  {activeAgentProfile?.name || '未选择智能体'}
                 </p>
                 {displayedConversationStatus ? (
                   <p className="text-muted-foreground mt-1 text-xs leading-5">
@@ -825,39 +971,60 @@ export function ChatWorkspace({
           onStartVoiceChat={() => onStartVoiceChat(displayedConversationId)}
           startDisabled={startDisabled || !displayedConversationId || loadingMessages}
           startDisabledReason={startDisabledReason}
+          transcriptScrollStorageKey={
+            displayedConversationId ? `chat-transcript-scroll:${displayedConversationId}` : null
+          }
           className="h-full w-full flex-1 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
         />
-      </Surface>
+      </>
+    );
 
-      {contextMenu && contextMenuConversation ? (
-        <Surface
-          ref={contextMenuRef}
-          className="fixed z-50 min-w-[168px] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.16)]"
-          variant="overlay"
-          radius="lg"
-          style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
-          }}
-        >
-          <button
-            type="button"
-            className="hover:bg-accent/80 hover:text-accent-foreground flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors"
-            onClick={() => startRenameConversation(contextMenuConversation)}
-          >
-            <Pencil className="size-4" />
-            <span>重命名会话</span>
-          </button>
-          <button
-            type="button"
-            className="hover:bg-destructive/10 text-destructive flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors"
-            onClick={() => void handleDeleteConversation(contextMenuConversation)}
-          >
-            <Trash2 className="size-4" />
-            <span>删除会话</span>
-          </button>
-        </Surface>
-      ) : null}
+    if (mode === 'mobile-sheet') {
+      return (
+        <div className="bg-background flex h-full min-h-0 flex-col overflow-hidden">
+          <SheetHeader className="sr-only">
+            <SheetTitle>
+              {displayedConversationTitle || displayedConversation?.title || '当前会话'}
+            </SheetTitle>
+            <SheetDescription>查看当前会话消息与语音交互内容。</SheetDescription>
+          </SheetHeader>
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <Surface className="hidden min-h-0 flex-1 flex-col overflow-hidden lg:flex" variant="panel">
+        {content}
+      </Surface>
+    );
+  };
+
+  return (
+    <section className={cn('flex h-full min-h-0 w-full gap-4', className)}>
+      {renderSidebarPanel('mobile')}
+      {renderSidebarPanel('desktop')}
+
+      <Sheet
+        open={mobileConversationOpen}
+        onOpenChange={(open) => {
+          if (open || !mobileConversationOpen) {
+            return;
+          }
+          onActiveConversationIdChange(null);
+          setDisplayedConversationId(null);
+          setDisplayedConversationTitle(null);
+          setDisplayedMessages([]);
+          onPersistedMessagesChange([]);
+          router.replace('/', { scroll: false });
+        }}
+      >
+        <SheetContent side="right" className="w-full p-0 sm:max-w-none lg:hidden">
+          {renderConversationPanel('mobile-sheet')}
+        </SheetContent>
+      </Sheet>
+
+      {renderConversationPanel('desktop')}
     </section>
   );
 }

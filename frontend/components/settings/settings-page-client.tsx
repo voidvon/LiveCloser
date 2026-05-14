@@ -34,6 +34,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { SidebarSheetButton } from '@/components/ui/sidebar-sheet-button';
 import { Surface } from '@/components/ui/surface';
 
 type EmbeddingProfile = {
@@ -329,7 +337,12 @@ function getCreateKind(activeTab: ModelTab): ProfileKind {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString('zh-CN');
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(value));
 }
 
 function hasDefaultFlag(model: ManagedModel) {
@@ -425,6 +438,7 @@ export function SettingsPageClient() {
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [settingDefaultKey, setSettingDefaultKey] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [settingsNavOpen, setSettingsNavOpen] = useState(false);
 
   const usageCountMap = useMemo(() => {
     const next = new Map<string, number>();
@@ -745,10 +759,50 @@ export function SettingsPageClient() {
     if (activeTab === 'tts') return '先添加一个默认 TTS 模型，语音播报才会启用。';
     return '先添加模型配置，统一在这里管理。';
   })();
+  const renderSettingsNav = (mode: 'desktop' | 'drawer') => (
+    <Surface
+      variant="sidebar"
+      padding="md"
+      className={
+        mode === 'desktop' ? 'hidden h-fit xl:block' : 'h-full rounded-none border-0 shadow-none'
+      }
+    >
+      <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">配置项</p>
+      <div className="mt-4 space-y-3">
+        {SETTINGS_NAV.map((item) => {
+          const active = item.id === activeSection;
+          return (
+            <InteractiveCard
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              variant={active ? 'selected' : 'default'}
+              radius="lg"
+              padding="md"
+              className="cursor-pointer"
+              onClick={() => {
+                setActiveSection(item.id);
+                setSettingsNavOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setActiveSection(item.id);
+                  setSettingsNavOpen(false);
+                }
+              }}
+            >
+              <p className="font-medium">{item.label}</p>
+            </InteractiveCard>
+          );
+        })}
+      </div>
+    </Surface>
+  );
 
   return (
     <>
-      <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))] px-4 py-6 md:px-8 md:py-8">
+      <div className="min-h-svh overflow-x-clip bg-[radial-gradient(circle_at_top_left,_rgba(14,116,144,0.12),_transparent_28%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))] px-4 py-6 md:px-8 md:py-8">
         <div className="mb-6">
           <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">设置</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">配置中心</h1>
@@ -764,39 +818,27 @@ export function SettingsPageClient() {
           </Surface>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <Surface variant="sidebar" padding="md" className="h-fit">
-            <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">配置项</p>
-            <div className="mt-4 space-y-3">
-              {SETTINGS_NAV.map((item) => {
-                const active = item.id === activeSection;
-                return (
-                  <InteractiveCard
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    variant={active ? 'selected' : 'default'}
-                    radius="lg"
-                    padding="md"
-                    className="cursor-pointer"
-                    onClick={() => setActiveSection(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setActiveSection(item.id);
-                      }
-                    }}
-                  >
-                    <p className="font-medium">{item.label}</p>
-                  </InteractiveCard>
-                );
-              })}
-            </div>
-          </Surface>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+          {renderSettingsNav('desktop')}
 
-          <Surface padding="md">
+          <Sheet open={settingsNavOpen} onOpenChange={setSettingsNavOpen}>
+            <SheetContent side="left" className="p-0 xl:hidden">
+              <SheetHeader>
+                <SheetTitle>配置项</SheetTitle>
+                <SheetDescription>切换当前设置分组。</SheetDescription>
+              </SheetHeader>
+              {renderSettingsNav('drawer')}
+            </SheetContent>
+          </Sheet>
+
+          <Surface className="min-w-0" padding="md">
             <div className="mb-6 flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
+                <SidebarSheetButton
+                  label="配置项"
+                  className="xl:hidden"
+                  onClick={() => setSettingsNavOpen(true)}
+                />
                 <Button className="rounded-full" onClick={handleStartCreate}>
                   <Plus className="mr-2 size-4" />
                   添加模型

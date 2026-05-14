@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { TokenSource } from 'livekit-client';
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
@@ -25,6 +25,7 @@ function AppSetup() {
 
 interface AppProps {
   appConfig: AppConfig;
+  initialConversationId?: string | null;
 }
 
 type PendingSessionConfig = {
@@ -34,10 +35,12 @@ type PendingSessionConfig = {
   dispatchAgent: boolean;
 };
 
-export function App({ appConfig }: AppProps) {
+export function App({ appConfig, initialConversationId = null }: AppProps) {
   const [sessionMode, setSessionMode] = useState<'text' | 'voice'>('text');
   const [activeAgentProfileId, setActiveAgentProfileId] = useState<string | null>(null);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    initialConversationId
+  );
   const [persistedMessages, setPersistedMessages] = useState<ConversationMessageRecord[]>([]);
   const pendingSessionConfigRef = useRef<PendingSessionConfig>({
     sessionMode: 'text',
@@ -71,6 +74,10 @@ export function App({ appConfig }: AppProps) {
     tokenSource,
     appConfig.agentName ? { agentName: appConfig.agentName } : undefined
   );
+
+  useEffect(() => {
+    setActiveConversationId(initialConversationId);
+  }, [initialConversationId]);
 
   return (
     <AgentSessionProvider session={session} muted={sessionMode === 'text'}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react';
+import { type SyntheticEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -26,6 +26,14 @@ import { FieldSelect } from '@/components/ui/field-select';
 import { Input } from '@/components/ui/input';
 import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { SidebarSheetButton } from '@/components/ui/sidebar-sheet-button';
 import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
 import { TreeView, type TreeViewItem } from '@/components/ui/tree-view';
@@ -382,7 +390,11 @@ async function streamRewriteFromModel({
       }
       const choices =
         typeof parsed === 'object' && parsed !== null && 'choices' in parsed
-          ? (parsed as { choices?: Array<{ delta?: { content?: string | Array<{ text?: string }> } }> }).choices
+          ? (
+              parsed as {
+                choices?: Array<{ delta?: { content?: string | Array<{ text?: string }> } }>;
+              }
+            ).choices
           : undefined;
       const delta = choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta) {
@@ -852,9 +864,7 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
             : '文档辅助对话失败'
       );
       setRewriteMessages((current) =>
-        current.filter(
-          (item) => item.id !== nextUserMessage.id && item.id !== assistantMessageId
-        )
+        current.filter((item) => item.id !== nextUserMessage.id && item.id !== assistantMessageId)
       );
       setRewriteInput(trimmedInstruction);
     } finally {
@@ -1139,9 +1149,15 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
                   <Textarea
                     value={editingFileContent}
                     onChange={(event) => setEditingFileContent(event.target.value)}
-                    onSelect={(event) => setEditingSelectedText(extractSelectedTextFromTextarea(event))}
-                    onMouseUp={(event) => setEditingSelectedText(extractSelectedTextFromTextarea(event))}
-                    onKeyUp={(event) => setEditingSelectedText(extractSelectedTextFromTextarea(event))}
+                    onSelect={(event) =>
+                      setEditingSelectedText(extractSelectedTextFromTextarea(event))
+                    }
+                    onMouseUp={(event) =>
+                      setEditingSelectedText(extractSelectedTextFromTextarea(event))
+                    }
+                    onKeyUp={(event) =>
+                      setEditingSelectedText(extractSelectedTextFromTextarea(event))
+                    }
                     className="h-full min-h-[calc(90vh-260px)] font-mono text-sm"
                     placeholder="输入文档内容"
                   />
@@ -1149,7 +1165,6 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
               </div>
 
               <DocumentRewriteChatPanel
-                fileName={editingFileName.trim() || editingFile?.original_name || '当前文档'}
                 currentContent={editingFileContent}
                 messages={rewriteMessages}
                 input={rewriteInput}
@@ -1199,7 +1214,6 @@ export function KbPageClient({ selectedKbId = null }: { selectedKbId?: string | 
 }
 
 function DocumentRewriteChatPanel({
-  fileName,
   currentContent,
   messages,
   input,
@@ -1213,7 +1227,6 @@ function DocumentRewriteChatPanel({
   onCopyCandidate,
   onClearSelection,
 }: {
-  fileName: string;
   currentContent: string;
   messages: RewriteChatMessage[];
   input: string;
@@ -1243,7 +1256,7 @@ function DocumentRewriteChatPanel({
           <div className="border-primary/20 bg-primary/5 flex items-start justify-between gap-3 rounded-2xl border px-3 py-2 text-xs">
             <div className="min-w-0 space-y-1">
               <p className="font-medium">已选中文本</p>
-              <p className="text-muted-foreground max-h-20 overflow-hidden whitespace-pre-wrap break-words leading-5">
+              <p className="text-muted-foreground max-h-20 overflow-hidden leading-5 break-words whitespace-pre-wrap">
                 {selectedText}
               </p>
             </div>
@@ -1267,7 +1280,8 @@ function DocumentRewriteChatPanel({
           </div>
         ) : (
           messages.map((message) => {
-            const parsedStreaming = message.role === 'assistant' ? parseRewriteOutput(message.content) : null;
+            const parsedStreaming =
+              message.role === 'assistant' ? parseRewriteOutput(message.content) : null;
             const displayedReply =
               message.role === 'assistant'
                 ? message.streaming
@@ -1276,7 +1290,8 @@ function DocumentRewriteChatPanel({
                 : message.content;
             const displayedCandidate =
               message.role === 'assistant'
-                ? message.candidate_content ?? (message.streaming ? parsedStreaming?.candidateContent ?? null : null)
+                ? (message.candidate_content ??
+                  (message.streaming ? (parsedStreaming?.candidateContent ?? null) : null))
                 : null;
 
             return (
@@ -1327,7 +1342,7 @@ function DocumentRewriteChatPanel({
                             <div
                               key={`${message.id}-${index}`}
                               className={cn(
-                                'rounded px-2 py-1 font-mono whitespace-pre-wrap break-words',
+                                'rounded px-2 py-1 font-mono break-words whitespace-pre-wrap',
                                 line.kind === 'added' &&
                                   'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
                                 line.kind === 'removed' &&
@@ -1566,6 +1581,7 @@ function KnowledgeBaseDetailView({
   onUploadFile: (file: File) => void;
 }) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
   const modelLabel = selectedProfile?.name || selectedKb.embedding_model || '未绑定模型';
   const fileScopeTitle = selectedCategory ? selectedCategory.name : '全部资料';
   const categoryOptions = useMemo(
@@ -1575,6 +1591,129 @@ function KnowledgeBaseDetailView({
         label: categoryPathById.get(category.id) ?? category.name,
       })),
     [categories, categoryPathById]
+  );
+  const renderCategoryPanel = (mode: 'desktop' | 'drawer') => (
+    <Surface
+      className={cn(
+        'border-dashed',
+        mode === 'desktop' ? 'hidden xl:block' : 'h-full rounded-none border-0 shadow-none'
+      )}
+      variant="muted"
+      radius="lg"
+      padding="md"
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="font-medium">分类树</h3>
+        <span className="text-muted-foreground text-xs">{categories.length} 个</span>
+      </div>
+
+      <div className="space-y-2">
+        <div
+          className={cn(
+            'group flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+            selectedCategoryId === null
+              ? 'border-primary/25 bg-primary/10'
+              : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onCategorySelect(null);
+              setCategoryDrawerOpen(false);
+            }}
+            className="min-w-0 flex-1 text-left font-medium"
+          >
+            全部资料
+          </button>
+          <div className="ml-3 flex items-center gap-1.5">
+            <span className="text-muted-foreground shrink-0 text-xs">{totalFileCount}</span>
+            <AddCategoryPopoverButton
+              creating={creatingCategory}
+              label="新增一级分类"
+              placeholder="输入一级分类名称"
+              className="opacity-100 md:pointer-events-none md:opacity-0 md:transition-opacity md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
+              onCreate={(name) => onCreateCategory(null, name)}
+            />
+          </div>
+        </div>
+
+        {treeItems.length === 0 ? (
+          <p className="text-muted-foreground px-1 pt-2 text-sm">
+            还没有分类，先新增一个一级分类再上传资料。
+          </p>
+        ) : (
+          <TreeView
+            data={treeItems}
+            selectedItemId={selectedCategoryId}
+            defaultExpandedItemIds={defaultExpandedIds}
+            onSelectChange={(item) => {
+              onCategorySelect(item?.id ?? null);
+              setCategoryDrawerOpen(false);
+            }}
+            renderItem={({ item, hasChildren, isExpanded, isSelected, select, toggle }) => (
+              <div
+                className={cn(
+                  'group flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
+                  isSelected
+                    ? 'border-primary/25 bg-primary/10'
+                    : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
+                )}
+              >
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    className={cn(
+                      'text-muted-foreground inline-flex size-4 shrink-0 items-center justify-center transition-transform',
+                      isExpanded && 'rotate-90'
+                    )}
+                    aria-label={isExpanded ? '收起分类' : '展开分类'}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="size-4"
+                      aria-hidden="true"
+                    >
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                  </button>
+                ) : (
+                  <span className="inline-flex size-4 shrink-0" aria-hidden="true" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    select();
+                    setCategoryDrawerOpen(false);
+                  }}
+                  className={cn('min-w-0 flex-1 truncate text-left', item.className)}
+                >
+                  {item.name}
+                </button>
+                <div className="ml-2 flex items-center gap-1.5">
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {fileCountByCategoryId.get(item.id) ?? 0}
+                  </span>
+                  <AddCategoryPopoverButton
+                    creating={creatingCategory}
+                    label={`在 ${item.name} 下新增子分类`}
+                    placeholder="输入子分类名称"
+                    className="opacity-100 md:pointer-events-none md:opacity-0 md:transition-opacity md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
+                    onCreate={(name) => onCreateCategory(item.id, name)}
+                  />
+                </div>
+              </div>
+            )}
+          />
+        )}
+      </div>
+    </Surface>
   );
 
   return (
@@ -1603,113 +1742,25 @@ function KnowledgeBaseDetailView({
 
       <section className="space-y-4">
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <Surface className="border-dashed" variant="muted" radius="lg" padding="md">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-medium">分类树</h3>
-              <span className="text-muted-foreground text-xs">{categories.length} 个</span>
-            </div>
+          {renderCategoryPanel('desktop')}
 
-            <div className="space-y-2">
-              <div
-                className={cn(
-                  'group flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
-                  selectedCategoryId === null
-                    ? 'border-primary/25 bg-primary/10'
-                    : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => onCategorySelect(null)}
-                  className="min-w-0 flex-1 text-left font-medium"
-                >
-                  全部资料
-                </button>
-                <div className="ml-3 flex items-center gap-1.5">
-                  <span className="text-muted-foreground shrink-0 text-xs">{totalFileCount}</span>
-                  <AddCategoryPopoverButton
-                    creating={creatingCategory}
-                    label="新增一级分类"
-                    placeholder="输入一级分类名称"
-                    className="pointer-events-none opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-                    onCreate={(name) => onCreateCategory(null, name)}
-                  />
-                </div>
-              </div>
-
-              {treeItems.length === 0 ? (
-                <p className="text-muted-foreground px-1 pt-2 text-sm">
-                  还没有分类，先新增一个一级分类再上传资料。
-                </p>
-              ) : (
-                <TreeView
-                  data={treeItems}
-                  selectedItemId={selectedCategoryId}
-                  defaultExpandedItemIds={defaultExpandedIds}
-                  onSelectChange={(item) => onCategorySelect(item?.id ?? null)}
-                  renderItem={({ item, hasChildren, isExpanded, isSelected, select, toggle }) => (
-                    <div
-                      className={cn(
-                        'group flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-left text-sm transition-colors',
-                        isSelected
-                          ? 'border-primary/25 bg-primary/10'
-                          : 'bg-background/70 hover:border-primary/15 hover:bg-background border-transparent'
-                      )}
-                    >
-                      {hasChildren ? (
-                        <button
-                          type="button"
-                          onClick={toggle}
-                          className={cn(
-                            'text-muted-foreground inline-flex size-4 shrink-0 items-center justify-center transition-transform',
-                            isExpanded && 'rotate-90'
-                          )}
-                          aria-label={isExpanded ? '收起分类' : '展开分类'}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="size-4"
-                            aria-hidden="true"
-                          >
-                            <path d="m9 18 6-6-6-6" />
-                          </svg>
-                        </button>
-                      ) : (
-                        <span className="inline-flex size-4 shrink-0" aria-hidden="true" />
-                      )}
-                      <button
-                        type="button"
-                        onClick={select}
-                        className={cn('min-w-0 flex-1 truncate text-left', item.className)}
-                      >
-                        {item.name}
-                      </button>
-                      <div className="ml-2 flex items-center gap-1.5">
-                        <span className="text-muted-foreground shrink-0 text-xs">
-                          {fileCountByCategoryId.get(item.id) ?? 0}
-                        </span>
-                        <AddCategoryPopoverButton
-                          creating={creatingCategory}
-                          label={`在 ${item.name} 下新增子分类`}
-                          placeholder="输入子分类名称"
-                          className="pointer-events-none opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-                          onCreate={(name) => onCreateCategory(item.id, name)}
-                        />
-                      </div>
-                    </div>
-                  )}
-                />
-              )}
-            </div>
-          </Surface>
+          <Sheet open={categoryDrawerOpen} onOpenChange={setCategoryDrawerOpen}>
+            <SheetContent side="left" className="p-0 xl:hidden">
+              <SheetHeader>
+                <SheetTitle>分类树</SheetTitle>
+                <SheetDescription>按分类筛选资料，或直接新增分类。</SheetDescription>
+              </SheetHeader>
+              {renderCategoryPanel('drawer')}
+            </SheetContent>
+          </Sheet>
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-start gap-2">
+              <SidebarSheetButton
+                label="分类"
+                className="xl:hidden"
+                onClick={() => setCategoryDrawerOpen(true)}
+              />
               <Button
                 className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full"
                 onClick={() => uploadInputRef.current?.click()}
@@ -2293,6 +2344,7 @@ function formatShortDateTime(value: string | null) {
 
   const date = new Date(value);
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     month: 'numeric',
     day: 'numeric',
     hour: '2-digit',

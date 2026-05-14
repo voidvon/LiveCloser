@@ -71,7 +71,7 @@ export function ViewController({
   }, []);
 
   useEffect(() => {
-    if (activeAgentProfileId) {
+    if (activeAgentProfileId || activeConversationId) {
       return;
     }
     const defaultAgent = agentProfiles.find((item) => item.is_default);
@@ -82,7 +82,7 @@ export function ViewController({
     if (agentProfiles[0]?.id) {
       onActiveAgentProfileIdChange(agentProfiles[0].id);
     }
-  }, [activeAgentProfileId, agentProfiles, onActiveAgentProfileIdChange]);
+  }, [activeAgentProfileId, activeConversationId, agentProfiles, onActiveAgentProfileIdChange]);
 
   const handleStartTextChat = (conversationId: string | null) => {
     if (!appConfig.sessionStartEnabled) {
@@ -111,7 +111,7 @@ export function ViewController({
   };
 
   return (
-    <section className="flex h-svh max-h-svh flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6">
+    <section className="flex h-[calc(100svh-var(--app-mobile-nav-offset))] max-h-[calc(100svh-var(--app-mobile-nav-offset))] flex-col overflow-hidden px-4 py-4 md:px-6 md:py-6 lg:h-svh lg:max-h-svh">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ChatWorkspace
           agentProfiles={agentProfiles}

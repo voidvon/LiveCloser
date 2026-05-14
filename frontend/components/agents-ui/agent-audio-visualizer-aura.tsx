@@ -1,6 +1,6 @@
 'use client';
 
-import React, { type ComponentProps, useMemo } from 'react';
+import React, { type ComponentProps, useEffect, useMemo, useState } from 'react';
 import { type VariantProps, cva } from 'class-variance-authority';
 import { type LocalAudioTrack, type RemoteAudioTrack } from 'livekit-client';
 import { type AgentState, type TrackReferenceOrPlaceholder } from '@livekit/components-react';
@@ -32,7 +32,7 @@ function hexToRgb(hexColor: string) {
 
       return color;
     }
-  } catch (error) {
+  } catch {
     console.error(
       `Invalid hex color '${hexColor}'.\nFalling back to default color '${DEFAULT_COLOR}'.`
     );
@@ -288,14 +288,22 @@ function AuraShader({
   color = DEFAULT_COLOR,
   colorShift = 1.0,
   brightness = 1.0,
-  themeMode = typeof window !== 'undefined' && document.documentElement.classList.contains('dark')
-    ? 'dark'
-    : 'light',
+  themeMode = 'light',
   ref,
   className,
   ...props
 }: AuraShaderProps & ComponentProps<'div'>) {
   const rgbColor = useMemo(() => hexToRgb(color), [color]);
+  const [resolvedThemeMode, setResolvedThemeMode] = useState(themeMode);
+
+  useEffect(() => {
+    if (themeMode !== 'light') {
+      setResolvedThemeMode(themeMode);
+      return;
+    }
+
+    setResolvedThemeMode(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }, [themeMode]);
 
   return (
     <div ref={ref} className={className} {...props}>
@@ -328,7 +336,7 @@ function AuraShader({
           // Smoothing of the aurora (0-1)
           uSmoothing: { type: '1f', value: 1.0 },
           // Display mode: 0=dark background, 1=light background
-          uMode: { type: '1f', value: themeMode === 'light' ? 1.0 : 0.0 },
+          uMode: { type: '1f', value: resolvedThemeMode === 'light' ? 1.0 : 0.0 },
           // Color
           uColor: { type: '3fv', value: rgbColor ?? [0, 0.7, 1] },
         }}

@@ -12,10 +12,10 @@ import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
+import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
-import { Shimmer } from '@/components/ai-elements/shimmer';
 import { cn } from '@/lib/shadcn/utils';
 import { TileLayout } from './tile-view';
 
@@ -179,6 +179,7 @@ export interface AgentSessionView_01Props {
   onStartVoiceChat?: () => void;
   startDisabled?: boolean;
   startDisabledReason?: string;
+  transcriptScrollStorageKey?: string | null;
 }
 
 export function AgentSessionView_01({
@@ -208,6 +209,7 @@ export function AgentSessionView_01({
   onStartVoiceChat,
   startDisabled = false,
   startDisabledReason,
+  transcriptScrollStorageKey = null,
   ref,
   className,
   ...props
@@ -272,7 +274,7 @@ export function AgentSessionView_01({
       <section
         ref={ref}
         className={cn(
-          'relative z-10 flex h-full min-h-0 w-full max-h-full flex-col overflow-hidden',
+          'relative z-10 flex h-full max-h-full min-h-0 w-full flex-col overflow-hidden',
           className
         )}
         {...props}
@@ -297,7 +299,7 @@ export function AgentSessionView_01({
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pt-4 md:px-8 md:pt-6">
           <div className="mb-4 shrink-0">
-            <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase text-muted-foreground">
+            <p className="text-muted-foreground font-mono text-[11px] font-bold tracking-[0.22em] uppercase">
               消息会话
             </p>
             <h2 className="mt-2 truncate text-2xl font-semibold tracking-tight">
@@ -334,17 +336,18 @@ export function AgentSessionView_01({
                   messages={isPreSession ? [] : messages}
                   persistedMessages={transcriptHistory}
                   className={transcriptPanelClassName}
+                  scrollStorageKey={transcriptScrollStorageKey}
                 />
               </div>
             )}
           </div>
         </div>
 
-        <div className="relative shrink-0 px-4 pb-4 pt-3 md:px-8 md:pb-8">
+        <div className="relative shrink-0 px-4 pt-3 pb-4 md:px-8 md:pb-8">
           {isPreSession ? (
             <div className="pointer-events-none absolute inset-x-4 bottom-[60px] z-[80] flex justify-center md:inset-x-8 md:bottom-[72px]">
               <Surface
-                className="pointer-events-auto flex flex-col gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:flex-row"
+                className="pointer-events-auto flex min-w-0 flex-row gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
                 variant="overlay"
                 radius="full"
               >
@@ -352,7 +355,7 @@ export function AgentSessionView_01({
                   variant="outline"
                   onClick={onStartTextChat}
                   disabled={startDisabled}
-                  className="rounded-full"
+                  className="min-w-0 flex-1 rounded-full px-3"
                 >
                   <TextCursorInput className="mr-2 size-4" />
                   消息对话
@@ -360,7 +363,7 @@ export function AgentSessionView_01({
                 <Button
                   onClick={onStartVoiceChat}
                   disabled={startDisabled}
-                  className="rounded-full"
+                  className="min-w-0 flex-1 rounded-full px-3"
                 >
                   <Phone className="mr-2 size-4" />
                   语音对话
@@ -384,10 +387,7 @@ export function AgentSessionView_01({
   return (
     <section
       ref={ref}
-      className={cn(
-        'relative z-10 h-full min-h-0 w-full max-h-full overflow-hidden',
-        className
-      )}
+      className={cn('relative z-10 h-full max-h-full min-h-0 w-full overflow-hidden', className)}
       {...props}
     >
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
@@ -432,21 +432,19 @@ export function AgentSessionView_01({
                   当前会话还没有历史消息，点击下方按钮开始。
                 </div>
               ) : isPreSession ? (
-                <div className="mx-auto h-full w-full max-w-2xl min-h-0">
+                <div className="mx-auto h-full min-h-0 w-full max-w-2xl">
                   <AgentChatTranscript
                     agentState={undefined}
                     messages={[]}
                     persistedMessages={transcriptHistory}
                     className={cn(
                       'mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px]',
-                      hasTopAlert
-                        ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24'
-                        : '[&>div>div]:pt-6'
+                      hasTopAlert ? '[&>div>div]:pt-20 md:[&>div>div]:pt-24' : '[&>div>div]:pt-6'
                     )}
                   />
                 </div>
               ) : (
-                <div className="mx-auto h-full w-full max-w-2xl min-h-0">
+                <div className="mx-auto h-full min-h-0 w-full max-w-2xl">
                   <AgentChatTranscript
                     agentState={agentState}
                     messages={messages}
@@ -480,7 +478,7 @@ export function AgentSessionView_01({
         {isPreSession ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-[58px] z-[80] flex justify-center">
             <Surface
-              className="pointer-events-auto flex flex-col gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:flex-row"
+              className="pointer-events-auto flex min-w-0 flex-row gap-2 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.18)]"
               variant="overlay"
               radius="full"
             >
@@ -488,12 +486,16 @@ export function AgentSessionView_01({
                 variant="outline"
                 onClick={onStartTextChat}
                 disabled={startDisabled}
-                className="rounded-full"
+                className="min-w-0 flex-1 rounded-full px-3"
               >
                 <TextCursorInput className="mr-2 size-4" />
                 消息对话
               </Button>
-              <Button onClick={onStartVoiceChat} disabled={startDisabled} className="rounded-full">
+              <Button
+                onClick={onStartVoiceChat}
+                disabled={startDisabled}
+                className="min-w-0 flex-1 rounded-full px-3"
+              >
                 <Phone className="mr-2 size-4" />
                 语音对话
               </Button>
@@ -516,7 +518,7 @@ export function AgentSessionView_01({
             )}
           </AnimatePresence>
         )}
-        <div className="relative mx-auto max-w-2xl bg-background/72 pb-3 backdrop-blur-xl md:pb-12">
+        <div className="bg-background/72 relative mx-auto max-w-2xl pb-3 backdrop-blur-xl md:pb-12">
           <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />
           <AgentControlBar
             variant="livekit"
