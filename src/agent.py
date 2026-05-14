@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -73,6 +73,9 @@ class IdleCallController:
         self._metadata = metadata
         self._agent_profile = agent_profile
         self._away_count = 0
+        self._user_state: Literal["speaking", "listening", "away"] = "listening"
+        self._agent_state: str = "initializing"
+        self._idle_timer_task: asyncio.Task[None] | None = None
         self._pending_task: asyncio.Task[None] | None = None
         self.closed_by_idle = False
 
@@ -83,11 +86,19 @@ class IdleCallController:
             and self._agent_profile.idle_timeout_seconds > 0
         )
 
-    def on_user_speaking(self, *, reset_away_count: bool = False) -> None:
+    def on_user_speaking(
+        self,
+        *,
+        reset_away_count: bool = False,
+        update_state: bool = True,
+    ) -> None:
         if not self.enabled:
             return
+        if update_state:
+            self._user_state = "speaking"
         if reset_away_count:
             self._away_count = 0
+        self._cancel_idle_timer()
         self._cancel_pending_task()
         if self.closed_by_idle:
             logger.info(
@@ -96,89 +107,123 @@ class IdleCallController:
             )
             self.closed_by_idle = False
 
-    def on_user_away(self) -> None:
+    def on_user_listening(self) -> None:
         if not self.enabled:
+            return
+        self._user_state = "listening"
+        self._arm_idle_timer_if_needed()
+
+    def on_agent_state_changed(self, state_name: str) -> None:
+        if not self.enabled:
+            return
+        self._agent_state = state_name
+        if self._is_waiting_for_user_response():
+            self._arm_idle_timer_if_needed()
+            return
+        self._cancel_idle_timer()
+
+    def cancel(self) -> None:
+        self._cancel_idle_timer()
+        self._cancel_pending_task()
+
+    def _is_waiting_for_user_response(self) -> bool:
+        return self._user_state == "listening" and self._agent_state in {"listening", "idle"}
+
+    def _arm_idle_timer_if_needed(self) -> None:
+        if not self._is_waiting_for_user_response():
             return
         if self._pending_task is not None and not self._pending_task.done():
             return
-
-        self._away_count += 1
-        is_final_attempt = self._away_count > self._agent_profile.max_idle_reminders
-        logger.info(
-            "user marked away",
-            extra={
-                "conversation_id": self._metadata.conversation_id,
-                "session_mode": self._metadata.session_mode,
-                "away_count": self._away_count,
-                "max_idle_reminders": self._agent_profile.max_idle_reminders,
-                "is_final_attempt": is_final_attempt,
-            },
-        )
-        task_name = "idle-close" if is_final_attempt else "idle-reminder"
-        self._pending_task = asyncio.create_task(
-            self._handle_idle_transition(is_final_attempt=is_final_attempt),
-            name=f"{task_name}-{self._metadata.conversation_id or 'session'}",
+        if self._idle_timer_task is not None and not self._idle_timer_task.done():
+            return
+        self._idle_timer_task = asyncio.create_task(
+            self._wait_for_idle_timeout(),
+            name=f"idle-window-{self._metadata.conversation_id or 'session'}",
         )
 
-    def cancel(self) -> None:
-        self._cancel_pending_task()
+    def _cancel_idle_timer(self) -> None:
+        if self._idle_timer_task is None or self._idle_timer_task.done():
+            return
+        task = self._idle_timer_task
+        task.cancel()
+        if self._idle_timer_task is task:
+            self._idle_timer_task = None
+
+    async def _wait_for_idle_timeout(self) -> None:
+        try:
+            logger.info(
+                "waiting for user idle timeout window",
+                extra={
+                    "conversation_id": self._metadata.conversation_id,
+                    "idle_timeout_seconds": self._agent_profile.idle_timeout_seconds,
+                    "away_count": self._away_count,
+                },
+            )
+            await asyncio.sleep(self._agent_profile.idle_timeout_seconds)
+            if not self._is_waiting_for_user_response():
+                return
+
+            self._away_count += 1
+            is_final_attempt = self._away_count > self._agent_profile.max_idle_reminders
+            logger.info(
+                "user idle timeout elapsed",
+                extra={
+                    "conversation_id": self._metadata.conversation_id,
+                    "session_mode": self._metadata.session_mode,
+                    "away_count": self._away_count,
+                    "max_idle_reminders": self._agent_profile.max_idle_reminders,
+                    "is_final_attempt": is_final_attempt,
+                },
+            )
+            task_name = "idle-close" if is_final_attempt else "idle-reminder"
+            self._pending_task = asyncio.create_task(
+                self._handle_idle_transition(is_final_attempt=is_final_attempt),
+                name=f"{task_name}-{self._metadata.conversation_id or 'session'}",
+            )
+        finally:
+            current_task = asyncio.current_task()
+            if self._idle_timer_task is current_task:
+                self._idle_timer_task = None
 
     def _cancel_pending_task(self) -> None:
         if self._pending_task is None or self._pending_task.done():
             return
-        self._pending_task.cancel()
+        task = self._pending_task
+        task.cancel()
+        if self._pending_task is task:
+            self._pending_task = None
 
     async def _handle_idle_transition(self, *, is_final_attempt: bool) -> None:
+        should_rearm_idle_timer = False
         try:
-            current_final_attempt = is_final_attempt
-            while True:
-                if current_final_attempt:
-                    self.closed_by_idle = True
-                    message = self._agent_profile.idle_goodbye_message.strip()
-                else:
-                    message = self._agent_profile.idle_reminder_message.strip()
+            if is_final_attempt:
+                self.closed_by_idle = True
+                message = self._agent_profile.idle_goodbye_message.strip()
+            else:
+                message = self._agent_profile.idle_reminder_message.strip()
 
-                if message:
-                    await self._say_and_wait(message)
+            if message:
+                await self._say_and_wait(message)
 
-                if current_final_attempt:
-                    logger.info(
-                        "closing session after repeated idle timeouts",
-                        extra={
-                            "conversation_id": self._metadata.conversation_id,
-                            "idle_timeout_seconds": self._agent_profile.idle_timeout_seconds,
-                            "away_count": self._away_count,
-                        },
-                    )
-                    await self._session.aclose()
-                    return
-
+            if is_final_attempt:
                 logger.info(
-                    "waiting for idle follow-up window",
+                    "closing session after repeated idle timeouts",
                     extra={
                         "conversation_id": self._metadata.conversation_id,
                         "idle_timeout_seconds": self._agent_profile.idle_timeout_seconds,
                         "away_count": self._away_count,
                     },
                 )
-                await asyncio.sleep(self._agent_profile.idle_timeout_seconds)
-                self._away_count += 1
-                current_final_attempt = self._away_count > self._agent_profile.max_idle_reminders
-                logger.info(
-                    "idle follow-up window elapsed",
-                    extra={
-                        "conversation_id": self._metadata.conversation_id,
-                        "away_count": self._away_count,
-                        "max_idle_reminders": self._agent_profile.max_idle_reminders,
-                        "is_final_attempt": current_final_attempt,
-                    },
-                )
+                await self._session.aclose()
+                return
+
+            should_rearm_idle_timer = True
         except asyncio.CancelledError:
-            if self._away_count > self._agent_profile.max_idle_reminders:
+            if is_final_attempt:
                 self.closed_by_idle = False
             raise
         except Exception:
-            if self._away_count > self._agent_profile.max_idle_reminders:
+            if is_final_attempt:
                 self.closed_by_idle = False
             logger.exception(
                 "idle call handling failed",
@@ -188,6 +233,8 @@ class IdleCallController:
             current_task = asyncio.current_task()
             if self._pending_task is current_task:
                 self._pending_task = None
+            if should_rearm_idle_timer:
+                self._arm_idle_timer_if_needed()
 
     async def _say_and_wait(self, message: str) -> None:
         audio_output = getattr(getattr(self._session, "output", None), "audio", None)
@@ -454,6 +501,7 @@ def build_session(
     session_kwargs: dict[str, Any] = {
         "vad": proc.userdata["vad"],
         "llm": openai.LLM(**llm_kwargs),
+        "user_away_timeout": None,
         "turn_handling": {
             "turn_detection": "vad",
             "endpointing": {
@@ -469,8 +517,6 @@ def build_session(
             },
         },
     }
-    if not metadata.is_text_mode and agent_profile.idle_timeout_seconds > 0:
-        session_kwargs["user_away_timeout"] = agent_profile.idle_timeout_seconds
     if stt_impl is not None:
         session_kwargs["stt"] = stt_impl
     if tts_impl is not None:
@@ -656,15 +702,20 @@ async def entrypoint(ctx: JobContext) -> None:
         if state_name == "speaking":
             idle_controller.on_user_speaking()
             return
-        if state_name == "away":
-            idle_controller.on_user_away()
+        if state_name == "listening":
+            idle_controller.on_user_listening()
+
+    @session.on("agent_state_changed")
+    def _handle_agent_state_changed(event) -> None:
+        state_name = _normalize_state_name(getattr(event, "new_state", None))
+        idle_controller.on_agent_state_changed(state_name)
 
     @session.on("user_input_transcribed")
     def _handle_user_input_transcribed(event) -> None:
         transcript = str(getattr(event, "transcript", "") or "").strip()
         if not transcript or not bool(getattr(event, "is_final", False)):
             return
-        idle_controller.on_user_speaking(reset_away_count=True)
+        idle_controller.on_user_speaking(reset_away_count=True, update_state=False)
 
     @session.on("conversation_item_added")
     def _handle_conversation_item_added(event) -> None:
@@ -677,7 +728,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if not content:
             return
         if item.role == "user":
-            idle_controller.on_user_speaking(reset_away_count=True)
+            idle_controller.on_user_speaking(reset_away_count=True, update_state=False)
         if not metadata.conversation_id:
             return
         conversation_service.append_message(

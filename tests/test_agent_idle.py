@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -92,8 +93,7 @@ class IdleCallControllerTest(unittest.IsolatedAsyncioTestCase):
             agent_profile=_build_agent_profile(),
         )
 
-        controller.on_user_away()
-        self.assertEqual(controller._away_count, 1)
+        controller._away_count = 1
 
         controller.on_user_speaking()
         self.assertEqual(controller._away_count, 1)
@@ -106,11 +106,52 @@ class IdleCallControllerTest(unittest.IsolatedAsyncioTestCase):
             agent_profile=_build_agent_profile(),
         )
 
-        controller.on_user_away()
-        self.assertEqual(controller._away_count, 1)
+        controller._away_count = 1
 
-        controller.on_user_speaking(reset_away_count=True)
+        controller.on_user_speaking(reset_away_count=True, update_state=False)
         self.assertEqual(controller._away_count, 0)
+
+    async def test_final_user_transcript_does_not_force_user_back_to_speaking(self) -> None:
+        session = _FakeSession()
+        controller = IdleCallController(
+            session=session,
+            metadata=SessionMetadata(session_mode="voice", conversation_id="conv-3b"),
+            agent_profile=_build_agent_profile(),
+        )
+
+        controller.on_user_listening()
+        controller.on_agent_state_changed("listening")
+        self.assertIsNotNone(controller._idle_timer_task)
+
+        controller.on_user_speaking(reset_away_count=True, update_state=False)
+        self.assertEqual(controller._user_state, "listening")
+
+        controller.on_agent_state_changed("thinking")
+        controller.on_agent_state_changed("listening")
+        self.assertIsNotNone(controller._idle_timer_task)
+
+    async def test_agent_speaking_pauses_idle_timer_until_listening_again(self) -> None:
+        session = _FakeSession()
+        controller = IdleCallController(
+            session=session,
+            metadata=SessionMetadata(session_mode="voice", conversation_id="conv-state"),
+            agent_profile=_build_agent_profile(),
+        )
+
+        controller.on_user_listening()
+        controller.on_agent_state_changed("listening")
+        first_timer = controller._idle_timer_task
+
+        self.assertIsNotNone(first_timer)
+
+        controller.on_agent_state_changed("speaking")
+        with self.assertRaises(asyncio.CancelledError):
+            await first_timer
+        self.assertIsNone(controller._idle_timer_task)
+
+        controller.on_agent_state_changed("listening")
+        self.assertIsNotNone(controller._idle_timer_task)
+        self.assertIsNot(controller._idle_timer_task, first_timer)
 
     async def test_idle_reminder_escalates_to_goodbye_and_closes_session(self) -> None:
         session = _FakeSession()
@@ -120,13 +161,35 @@ class IdleCallControllerTest(unittest.IsolatedAsyncioTestCase):
             agent_profile=_build_agent_profile(idle_timeout_seconds=10.0, max_idle_reminders=1),
         )
 
-        async def _fast_sleep(_: float) -> None:
-            return None
+        sleep_futures: list[asyncio.Future[None]] = []
 
-        with patch("agent.asyncio.sleep", new=_fast_sleep):
-            controller.on_user_away()
-            assert controller._pending_task is not None
-            await controller._pending_task
+        async def _controlled_sleep(_: float) -> None:
+            fut = asyncio.get_running_loop().create_future()
+            sleep_futures.append(fut)
+            await fut
+
+        with patch("agent.asyncio.sleep", new=_controlled_sleep):
+            controller.on_user_listening()
+            controller.on_agent_state_changed("listening")
+            assert controller._idle_timer_task is not None
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(controller._idle_timer_task), timeout=0.001)
+            self.assertEqual(len(sleep_futures), 1)
+            sleep_futures[0].set_result(None)
+            await controller._idle_timer_task
+            if controller._pending_task is not None:
+                await controller._pending_task
+            self.assertEqual([call["message"] for call in session.say_calls], ["喂，您还在吗？"])
+            self.assertEqual(controller._away_count, 1)
+            assert controller._idle_timer_task is not None
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(controller._idle_timer_task), timeout=0.001)
+            self.assertEqual(len(sleep_futures), 2)
+            assert controller._idle_timer_task is not None
+            sleep_futures[1].set_result(None)
+            await controller._idle_timer_task
+            if controller._pending_task is not None:
+                await controller._pending_task
 
         self.assertEqual(
             [call["message"] for call in session.say_calls],
