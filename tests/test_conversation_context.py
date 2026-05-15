@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from livekit_sales_agent.conversation import ConversationService  # noqa: E402
-from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
+from livekit_sales_agent.knowledge.db import LATEST_MIGRATION_VERSION, ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
 from livekit_sales_agent.profiles import ProfileService  # noqa: E402
 
@@ -60,6 +60,24 @@ class ConversationContextTest(unittest.TestCase):
             self.assertIn("end_reason", columns)
             self.assertIn("end_detail", columns)
             self.assertIn("idx_chat_conversations_agent_profile_id", indexes)
+
+    def test_new_database_records_all_migration_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "app.db"
+            ensure_database(db_path)
+
+            verify_conn = sqlite3.connect(db_path)
+            try:
+                versions = [
+                    row[0]
+                    for row in verify_conn.execute(
+                        "SELECT version FROM _migrations ORDER BY version ASC"
+                    ).fetchall()
+                ]
+            finally:
+                verify_conn.close()
+
+            self.assertEqual(versions, list(range(1, LATEST_MIGRATION_VERSION + 1)))
 
     def test_developer_messages_are_normalized_to_system(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

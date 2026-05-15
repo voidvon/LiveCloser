@@ -18,7 +18,7 @@ from livekit_sales_agent.defaults import (  # noqa: E402
     DEFAULT_OPENING_MESSAGE,
 )
 from livekit_sales_agent.config import Settings  # noqa: E402
-from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
+from livekit_sales_agent.knowledge.db import LATEST_MIGRATION_VERSION, ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
 from livekit_sales_agent.profiles import ProfileService  # noqa: E402
 
@@ -200,11 +200,18 @@ class AgentProfileTest(unittest.TestCase):
                 columns = {
                     row["name"] for row in migrated.execute("PRAGMA table_info(agent_profiles)").fetchall()
                 }
+                migration_versions = [
+                    row["version"]
+                    for row in migrated.execute(
+                        "SELECT version FROM _migrations ORDER BY version ASC"
+                    ).fetchall()
+                ]
                 self.assertIn("opening_message", columns)
                 self.assertIn("idle_timeout_seconds", columns)
                 self.assertIn("max_idle_reminders", columns)
                 self.assertIn("idle_reminder_message", columns)
                 self.assertIn("idle_goodbye_message", columns)
+                self.assertEqual(migration_versions, list(range(1, LATEST_MIGRATION_VERSION + 1)))
                 row = migrated.execute(
                     """
                     SELECT

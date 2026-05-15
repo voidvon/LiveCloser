@@ -3,9 +3,11 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from livekit_sales_agent.profiles.repository import ProfileRepository
+
 from .chunker import chunk_sections
 from .chroma_store import ChromaStore
-from .db import connect
+from .db import connect, unit_of_work
 from .embeddings import EmbeddingClient
 from .loaders import load_sections
 from .models import ChunkDocument
@@ -31,7 +33,7 @@ class JobRunner:
         thread.start()
 
     def _run_embed_job(self, job_id: str) -> None:
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             job = repo.get_job(job_id)
             if job is None or job.file_id is None:
@@ -51,51 +53,58 @@ class JobRunner:
                 )
                 return
 
-            try:
+        try:
+            with unit_of_work(self._db_path) as conn:
+                repo = KnowledgeBaseRepository(conn)
                 repo.update_file_status(file_record.id, status="embedding")
 
-                sections = load_sections(Path(file_record.stored_path))
-                chunk_candidates = chunk_sections(
-                    sections,
-                    chunk_size=kb_record.chunk_size,
-                    chunk_overlap=kb_record.chunk_overlap,
+            sections = load_sections(Path(file_record.stored_path))
+            chunk_candidates = chunk_sections(
+                sections,
+                chunk_size=kb_record.chunk_size,
+                chunk_overlap=kb_record.chunk_overlap,
+            )
+            chunk_docs = [
+                ChunkDocument(
+                    chunk_id=f"{file_record.id}:{candidate.chunk_index}",
+                    kb_id=kb_record.id,
+                    file_id=file_record.id,
+                    category_id=file_record.category_id,
+                    source_path=file_record.stored_path,
+                    title=candidate.section_title,
+                    content=candidate.content,
+                    chunk_index=candidate.chunk_index,
                 )
-                chunk_docs = [
-                    ChunkDocument(
-                        chunk_id=f"{file_record.id}:{candidate.chunk_index}",
-                        kb_id=kb_record.id,
-                        file_id=file_record.id,
-                        category_id=file_record.category_id,
-                        source_path=file_record.stored_path,
-                        title=candidate.section_title,
-                        content=candidate.content,
-                        chunk_index=candidate.chunk_index,
-                    )
-                    for candidate in chunk_candidates
-                ]
+                for candidate in chunk_candidates
+            ]
 
-                embedding_provider = kb_record.embedding_provider
-                embedding_model = kb_record.embedding_model
-                embedding_base_url = kb_record.embedding_base_url
-                embedding_api_key_env = kb_record.embedding_api_key_env
+            embedding_provider = kb_record.embedding_provider
+            embedding_model = kb_record.embedding_model
+            embedding_base_url = kb_record.embedding_base_url
+            embedding_api_key_env = kb_record.embedding_api_key_env
 
-                if kb_record.embedding_profile_id:
-                    profile = repo.get_embedding_profile(kb_record.embedding_profile_id)
-                    if profile is None:
-                        raise ValueError("知识库绑定的 Embedding 模型不存在")
-                    embedding_provider = profile.provider
-                    embedding_model = profile.model
-                    embedding_base_url = profile.base_url
-                    embedding_api_key_env = profile.api_key_env
+            if kb_record.embedding_profile_id:
+                with connect(self._db_path) as conn:
+                    profile_repo = ProfileRepository(conn)
+                    profile = profile_repo.get_embedding_profile(kb_record.embedding_profile_id)
+                if profile is None:
+                    raise ValueError("知识库绑定的 Embedding 模型不存在")
+                embedding_provider = profile.provider
+                embedding_model = profile.model
+                embedding_base_url = profile.base_url
+                embedding_api_key_env = profile.api_key_env
 
-                embedding_client = EmbeddingClient(
-                    provider=embedding_provider,
-                    model=embedding_model,
-                    base_url=embedding_base_url,
-                    api_key_env=embedding_api_key_env,
-                )
-                vectors = embedding_client.embed_texts([item.content for item in chunk_docs])
+            embedding_client = EmbeddingClient(
+                provider=embedding_provider,
+                model=embedding_model,
+                base_url=embedding_base_url,
+                api_key_env=embedding_api_key_env,
+            )
+            vectors = embedding_client.embed_texts([item.content for item in chunk_docs])
 
+            finished_at = utc_now()
+            with unit_of_work(self._db_path) as conn:
+                repo = KnowledgeBaseRepository(conn)
                 repo.delete_chunks_for_file(file_record.id)
                 self._chroma_store.replace_file_chunks(
                     kb_id=kb_record.id,
@@ -115,11 +124,12 @@ class JobRunner:
                         category_id=chunk.category_id,
                     )
 
-                finished_at = utc_now()
                 repo.update_file_status(file_record.id, status="ready", last_embedded_at=finished_at)
                 repo.update_job_status(job_id, status="completed", finished_at=finished_at)
-            except Exception as exc:
-                finished_at = utc_now()
+        except Exception as exc:
+            finished_at = utc_now()
+            with unit_of_work(self._db_path) as conn:
+                repo = KnowledgeBaseRepository(conn)
                 repo.update_file_status(file_record.id, status="failed")
                 repo.update_job_status(
                     job_id,

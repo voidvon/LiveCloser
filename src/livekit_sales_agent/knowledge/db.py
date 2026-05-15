@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,14 +21,38 @@ def _is_index_statement(statement: str) -> bool:
 
 BASE_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if not _is_index_statement(statement)]
 INDEX_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if _is_index_statement(statement)]
+LATEST_MIGRATION_VERSION = 5
+
+
+class _ManagedConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn = sqlite3.connect(db_path, check_same_thread=False, factory=_ManagedConnection)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+@contextmanager
+def unit_of_work(db_path: Path):
+    conn = connect(db_path)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def ensure_database(db_path: Path) -> None:
@@ -35,6 +60,7 @@ def ensure_database(db_path: Path) -> None:
     try:
         for statement in BASE_SCHEMA_STATEMENTS:
             conn.execute(statement)
+        _ensure_migrations_table(conn)
         _run_migrations(conn)
         for statement in INDEX_SCHEMA_STATEMENTS:
             conn.execute(statement)
@@ -44,18 +70,60 @@ def ensure_database(db_path: Path) -> None:
 
 
 def _run_migrations(conn: sqlite3.Connection) -> None:
+    applied_versions = _get_applied_migration_versions(conn)
+    for version, migration in MIGRATIONS:
+        if version in applied_versions:
+            continue
+        migration(conn)
+        _record_migration(conn, version)
+
+
+def _ensure_migrations_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS _migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _get_applied_migration_versions(conn: sqlite3.Connection) -> set[int]:
+    rows = conn.execute("SELECT version FROM _migrations").fetchall()
+    return {int(row["version"]) for row in rows}
+
+
+def _record_migration(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute(
+        "INSERT INTO _migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+        (version,),
+    )
+
+
+def _migration_001_embedding_profiles(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn,
         table_name="knowledge_bases",
         column_name="embedding_profile_id",
         column_sql="TEXT",
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_embedding_profile_id ON knowledge_bases(embedding_profile_id)"
+    )
+    _backfill_embedding_profiles(conn)
+
+
+def _migration_002_chunk_category(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn,
         table_name="kb_chunks",
         column_name="category_id",
         column_sql="TEXT",
     )
+
+
+def _migration_003_conversation_fields(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn,
         table_name="chat_conversations",
@@ -86,6 +154,9 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="end_detail",
         column_sql="TEXT NOT NULL DEFAULT ''",
     )
+
+
+def _migration_004_agent_profile_fields(conn: sqlite3.Connection) -> None:
     added_opening_message = _ensure_column(
         conn,
         table_name="agent_profiles",
@@ -116,6 +187,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="idle_goodbye_message",
         column_sql="TEXT NOT NULL DEFAULT ''",
     )
+    if added_opening_message:
+        _backfill_agent_profile_opening_messages(conn)
+    if added_idle_timeout_seconds or added_max_idle_reminders:
+        _backfill_agent_profile_idle_thresholds(conn)
+    if added_idle_reminder_message or added_idle_goodbye_message:
+        _backfill_agent_profile_idle_messages(conn)
+
+
+def _migration_005_product_fields(conn: sqlite3.Connection) -> None:
     added_product_category = _ensure_column(
         conn,
         table_name="products",
@@ -152,10 +232,6 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="attributes",
         column_sql="TEXT NOT NULL DEFAULT ''",
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_embedding_profile_id ON knowledge_bases(embedding_profile_id)"
-    )
-    _backfill_embedding_profiles(conn)
     if any(
         [
             added_product_category,
@@ -167,12 +243,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         ]
     ):
         _backfill_generic_product_fields(conn)
-    if added_opening_message:
-        _backfill_agent_profile_opening_messages(conn)
-    if added_idle_timeout_seconds or added_max_idle_reminders:
-        _backfill_agent_profile_idle_thresholds(conn)
-    if added_idle_reminder_message or added_idle_goodbye_message:
-        _backfill_agent_profile_idle_messages(conn)
+
+
+MIGRATIONS = [
+    (1, _migration_001_embedding_profiles),
+    (2, _migration_002_chunk_category),
+    (3, _migration_003_conversation_fields),
+    (4, _migration_004_agent_profile_fields),
+    (5, _migration_005_product_fields),
+]
 
 
 def _ensure_column(

@@ -5,7 +5,7 @@ from typing import Optional
 
 from livekit.agents import ChatContext
 
-from livekit_sales_agent.knowledge.db import connect
+from livekit_sales_agent.knowledge.db import connect, unit_of_work
 
 from .constants import UNSET
 from .repositories import ConversationRepository
@@ -30,7 +30,7 @@ class ConversationService:
         agent_profile_id: Optional[str] = None,
         last_mode: str = "text",
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             return repo.create_conversation(
                 title=title,
@@ -57,7 +57,7 @@ class ConversationService:
         end_reason: str | object = _UNSET,
         end_detail: str | object = _UNSET,
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             return repo.update_conversation(
                 conversation_id,
@@ -72,7 +72,7 @@ class ConversationService:
             )
 
     def delete_conversation(self, conversation_id: str) -> bool:
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             return repo.delete_conversation(conversation_id)
 
@@ -84,7 +84,7 @@ class ConversationService:
         agent_profile_id: Optional[str],
         last_mode: str,
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             if conversation_id:
                 record = repo.get_conversation(conversation_id)
@@ -130,7 +130,7 @@ class ConversationService:
         source_mode: str,
         external_message_id: Optional[str] = None,
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             return repo.create_message(
                 conversation_id=conversation_id,
@@ -147,7 +147,7 @@ class ConversationService:
         reason: str,
         detail: str = "",
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = ConversationRepository(conn)
             return repo.end_conversation(
                 conversation_id,

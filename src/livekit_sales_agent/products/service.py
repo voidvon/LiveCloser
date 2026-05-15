@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from livekit_sales_agent.knowledge.db import connect
-from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository
+from livekit_sales_agent.knowledge.db import connect, unit_of_work
+from livekit_sales_agent.products.repository import ProductRepository
 
 
 class ProductService:
@@ -26,7 +26,7 @@ class ProductService:
         limit: int = 200,
     ):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProductRepository(conn)
             return repo.list_products(
                 query=self._normalize_text(query),
                 category=self._normalize_text(category),
@@ -39,7 +39,7 @@ class ProductService:
 
     def get_product(self, product_id: str):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProductRepository(conn)
             return repo.get_product(product_id)
 
     def create_product(
@@ -64,8 +64,8 @@ class ProductService:
         if not any([normalized_name, normalized_model, normalized_sku]):
             raise ValueError("名称、型号、货号至少填写一项")
 
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProductRepository(conn)
             if normalized_model and repo.list_products(model=normalized_model, limit=1):
                 raise ValueError("产品型号不能重复")
             if normalized_sku and repo.list_products(sku=normalized_sku, limit=1):
@@ -108,8 +108,8 @@ class ProductService:
         if not any([normalized_name, normalized_model, normalized_sku]):
             raise ValueError("名称、型号、货号至少填写一项")
 
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProductRepository(conn)
             model_duplicates = repo.list_products(model=normalized_model, limit=5) if normalized_model else []
             if any(item.id != product_id for item in model_duplicates):
                 raise ValueError("产品型号不能重复")
@@ -133,6 +133,6 @@ class ProductService:
             )
 
     def delete_product(self, product_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProductRepository(conn)
             return repo.delete_product(product_id)

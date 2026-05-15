@@ -4,8 +4,9 @@ from pathlib import Path
 from typing import Optional
 
 from livekit_sales_agent.profiles import ProfileService
+from livekit_sales_agent.profiles.repository import ProfileRepository
 
-from .db import connect
+from .db import connect, unit_of_work
 from .jobs import JobRunner
 from .retrieval import RetrievalService
 from .chroma_store import ChromaStore
@@ -88,9 +89,10 @@ class KnowledgeService:
         chunk_overlap: int,
         retrieval_top_k: int,
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
-            if embedding_profile_id and repo.get_embedding_profile(embedding_profile_id) is None:
+            profile_repo = ProfileRepository(conn)
+            if embedding_profile_id and profile_repo.get_embedding_profile(embedding_profile_id) is None:
                 raise ValueError("Embedding profile not found")
             return repo.create_knowledge_base(
                 name=name,
@@ -120,9 +122,10 @@ class KnowledgeService:
         chunk_overlap: int,
         retrieval_top_k: int,
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
-            if embedding_profile_id and repo.get_embedding_profile(embedding_profile_id) is None:
+            profile_repo = ProfileRepository(conn)
+            if embedding_profile_id and profile_repo.get_embedding_profile(embedding_profile_id) is None:
                 raise ValueError("Embedding profile not found")
             return repo.update_knowledge_base(
                 kb_id,
@@ -146,7 +149,7 @@ class KnowledgeService:
     def create_category(
         self, *, kb_id: str, name: str, parent_id: Optional[str], sort_order: int
     ):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             self._ensure_knowledge_base_exists(repo, kb_id)
             self._validate_category_belongs_to_kb(
@@ -233,7 +236,7 @@ class KnowledgeService:
             original_name=original_name,
             content=content,
         )
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             file_record = repo.create_file(
                 kb_id=kb_id,
@@ -329,7 +332,7 @@ class KnowledgeService:
             return file_record, None
 
         job_record = None
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             updated_file = repo.update_file_metadata(
                 file_id,
@@ -358,7 +361,7 @@ class KnowledgeService:
         return updated_file, job_record
 
     def delete_file(self, *, kb_id: str, file_id: str) -> bool:
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             record = self._get_file_for_kb(repo, kb_id=kb_id, file_id=file_id)
             if record is None:
@@ -379,13 +382,13 @@ class KnowledgeService:
             return repo.list_jobs(kb_id)
 
     def clear_finished_jobs(self, kb_id: str) -> int:
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             self._ensure_knowledge_base_exists(repo, kb_id)
             return repo.clear_finished_jobs(kb_id)
 
     def reindex_file(self, *, kb_id: str, file_id: str):
-        with connect(self._db_path) as conn:
+        with unit_of_work(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             file_record = repo.get_file(file_id)
             if file_record is None or file_record.kb_id != kb_id:

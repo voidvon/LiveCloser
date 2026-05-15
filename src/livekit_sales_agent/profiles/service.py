@@ -17,8 +17,9 @@ from livekit_sales_agent.defaults import (
     DEFAULT_MAX_IDLE_REMINDERS,
     DEFAULT_OPENING_MESSAGE,
 )
-from livekit_sales_agent.knowledge.db import connect
+from livekit_sales_agent.knowledge.db import connect, unit_of_work
 from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository
+from livekit_sales_agent.profiles.repository import ProfileRepository
 
 
 class ProfileService:
@@ -27,7 +28,7 @@ class ProfileService:
 
     def load_chat_model_settings(self) -> ChatModelSettings:
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             record = repo.get_default_chat_model_profile()
         return self._chat_model_settings_from_record(record)
 
@@ -38,7 +39,7 @@ class ProfileService:
         default_retrieval_top_k: int,
     ) -> AgentProfileSettings:
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             profile = repo.get_agent_profile(agent_profile_id) if agent_profile_id else None
             if profile is None:
                 profile = repo.get_default_agent_profile()
@@ -92,7 +93,7 @@ class ProfileService:
         profile_id: Optional[str] = None,
     ) -> Optional[SttModelSettings]:
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             record = (
                 repo.get_stt_model_profile(profile_id)
                 if profile_id
@@ -118,7 +119,7 @@ class ProfileService:
         profile_id: Optional[str] = None,
     ) -> Optional[TtsModelSettings]:
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             record = (
                 repo.get_tts_model_profile(profile_id)
                 if profile_id
@@ -140,12 +141,12 @@ class ProfileService:
 
     def list_chat_model_profiles(self):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             return repo.list_chat_model_profiles()
 
     def list_agent_profiles(self):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             return repo.list_agent_profiles()
 
     def create_agent_profile(
@@ -166,10 +167,12 @@ class ProfileService:
         is_default: bool,
     ):
         normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
+            knowledge_repo = KnowledgeBaseRepository(conn)
             self._validate_agent_profile_dependencies(
-                repo,
+                profile_repo=repo,
+                knowledge_repo=knowledge_repo,
                 chat_model_profile_id=chat_model_profile_id,
                 knowledge_base_ids=normalized_kb_ids,
                 retrieval_top_k=retrieval_top_k,
@@ -214,10 +217,12 @@ class ProfileService:
         is_default: bool,
     ):
         normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
+            knowledge_repo = KnowledgeBaseRepository(conn)
             self._validate_agent_profile_dependencies(
-                repo,
+                profile_repo=repo,
+                knowledge_repo=knowledge_repo,
                 chat_model_profile_id=chat_model_profile_id,
                 knowledge_base_ids=normalized_kb_ids,
                 retrieval_top_k=retrieval_top_k,
@@ -245,8 +250,8 @@ class ProfileService:
                 raise ValueError("智能体名称不能重复") from exc
 
     def delete_agent_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.delete_agent_profile(profile_id)
 
     def create_chat_model_profile(
@@ -259,8 +264,8 @@ class ProfileService:
         api_key: str,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.create_chat_model_profile(
                 name=name,
                 provider=provider,
@@ -281,8 +286,8 @@ class ProfileService:
         api_key: str,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.update_chat_model_profile(
                 profile_id,
                 name=name,
@@ -294,18 +299,18 @@ class ProfileService:
             )
 
     def set_default_chat_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.set_default_chat_model_profile(profile_id)
 
     def delete_chat_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.delete_chat_model_profile(profile_id)
 
     def list_stt_model_profiles(self):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             return repo.list_stt_model_profiles()
 
     def create_stt_model_profile(
@@ -324,8 +329,8 @@ class ProfileService:
         language: str,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.create_stt_model_profile(
                 name=name,
                 provider=provider,
@@ -358,8 +363,8 @@ class ProfileService:
         language: str,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.update_stt_model_profile(
                 profile_id,
                 name=name,
@@ -377,18 +382,18 @@ class ProfileService:
             )
 
     def set_default_stt_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.set_default_stt_model_profile(profile_id)
 
     def delete_stt_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.delete_stt_model_profile(profile_id)
 
     def list_tts_model_profiles(self):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             return repo.list_tts_model_profiles()
 
     def create_tts_model_profile(
@@ -412,8 +417,8 @@ class ProfileService:
         pitch_ratio: float,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.create_tts_model_profile(
                 name=name,
                 provider=provider,
@@ -456,8 +461,8 @@ class ProfileService:
         pitch_ratio: float,
         is_default: bool,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.update_tts_model_profile(
                 profile_id,
                 name=name,
@@ -480,18 +485,18 @@ class ProfileService:
             )
 
     def set_default_tts_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.set_default_tts_model_profile(profile_id)
 
     def delete_tts_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.delete_tts_model_profile(profile_id)
 
     def list_embedding_profiles(self):
         with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProfileRepository(conn)
             return repo.list_embedding_profiles()
 
     def create_embedding_profile(
@@ -503,8 +508,8 @@ class ProfileService:
         base_url: str,
         api_key_env: str,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.create_embedding_profile(
                 name=name,
                 provider=provider,
@@ -523,8 +528,8 @@ class ProfileService:
         base_url: str,
         api_key_env: str,
     ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
             return repo.update_embedding_profile(
                 profile_id,
                 name=name,
@@ -535,9 +540,10 @@ class ProfileService:
             )
 
     def delete_embedding_profile(self, profile_id: str) -> tuple[bool, bool]:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            if repo.count_knowledge_bases_using_embedding_profile(profile_id) > 0:
+        with unit_of_work(self._db_path) as conn:
+            repo = ProfileRepository(conn)
+            knowledge_repo = KnowledgeBaseRepository(conn)
+            if knowledge_repo.count_knowledge_bases_using_embedding_profile(profile_id) > 0:
                 return False, True
             return repo.delete_embedding_profile(profile_id), False
 
@@ -555,8 +561,9 @@ class ProfileService:
 
     @staticmethod
     def _validate_agent_profile_dependencies(
-        repo: KnowledgeBaseRepository,
         *,
+        profile_repo: ProfileRepository,
+        knowledge_repo: KnowledgeBaseRepository,
         chat_model_profile_id: Optional[str],
         knowledge_base_ids: list[str],
         retrieval_top_k: int,
@@ -569,10 +576,13 @@ class ProfileService:
             raise ValueError("无人应答超时时间不能小于 0")
         if max_idle_reminders < 0:
             raise ValueError("无人应答提醒次数不能小于 0")
-        if chat_model_profile_id and repo.get_chat_model_profile(chat_model_profile_id) is None:
+        if (
+            chat_model_profile_id
+            and profile_repo.get_chat_model_profile(chat_model_profile_id) is None
+        ):
             raise ValueError("智能体绑定的对话模型不存在")
         missing_kb_ids = [
-            kb_id for kb_id in knowledge_base_ids if repo.get_knowledge_base(kb_id) is None
+            kb_id for kb_id in knowledge_base_ids if knowledge_repo.get_knowledge_base(kb_id) is None
         ]
         if missing_kb_ids:
             raise ValueError("智能体绑定的知识库不存在")

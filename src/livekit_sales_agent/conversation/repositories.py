@@ -67,7 +67,6 @@ class ConversationRepository:
             """,
             (record_id, title, knowledge_base_id, agent_profile_id, last_mode, now, now, None),
         )
-        self._conn.commit()
         record = self.get_conversation(record_id)
         assert record is not None
         return record
@@ -112,7 +111,6 @@ class ConversationRepository:
                 conversation_id,
             ),
         )
-        self._conn.commit()
         return self.get_conversation(conversation_id)
 
     def end_conversation(
@@ -135,7 +133,6 @@ class ConversationRepository:
             """,
             (finished_at, reason, detail, finished_at, conversation_id),
         )
-        self._conn.commit()
         return self.get_conversation(conversation_id)
 
     def delete_conversation(self, conversation_id: str) -> bool:
@@ -143,7 +140,6 @@ class ConversationRepository:
             "DELETE FROM chat_conversations WHERE id = ?",
             (conversation_id,),
         )
-        self._conn.commit()
         return result.rowcount > 0
 
     def touch_conversation(
@@ -162,7 +158,6 @@ class ConversationRepository:
             """,
             (last_mode, last_message_at, last_message_at, preview, conversation_id),
         )
-        self._conn.commit()
         return self.get_conversation(conversation_id)
 
     def list_messages(self, conversation_id: str) -> list[ConversationMessageRecord]:
@@ -237,6 +232,5 @@ class ConversationRepository:
             "SELECT * FROM chat_messages WHERE id = ?",
             (record_id,),
         ).fetchone()
-        self._conn.commit()
         assert row is not None
         return _row_to_message(row)

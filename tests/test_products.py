@@ -9,8 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from livekit_sales_agent.knowledge.db import connect, ensure_database  # noqa: E402
-from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository  # noqa: E402
-from livekit_sales_agent.products import ProductService  # noqa: E402
+from livekit_sales_agent.products import ProductRepository, ProductService  # noqa: E402
 
 
 class ProductCatalogTest(unittest.TestCase):
@@ -20,7 +19,7 @@ class ProductCatalogTest(unittest.TestCase):
             db_path = root / "app.db"
             ensure_database(db_path)
             conn = connect(db_path)
-            repo = KnowledgeBaseRepository(conn)
+            repo = ProductRepository(conn)
 
             first = repo.create_product(
                 name="iPhone 15 Pro",
