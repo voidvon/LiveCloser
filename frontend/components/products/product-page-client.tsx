@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pencil, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,32 +21,9 @@ import {
 } from '@/components/ui/select';
 import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
+import { DEFAULT_PRODUCT_FILTERS, type ProductFilters, useProducts } from '@/hooks/useProducts';
 import { cn } from '@/lib/shadcn/utils';
-
-type Product = {
-  id: string;
-  name: string;
-  category: string;
-  brand: string;
-  model: string;
-  sku: string;
-  aliases: string;
-  price: string;
-  currency: string;
-  status: string;
-  summary: string;
-  tags: string;
-  attributes: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type ProductFilters = {
-  query: string;
-  category: string;
-  brand: string;
-  status: string;
-};
+import type { Product, ProductPayload } from '@/types';
 
 type ProductFormState = {
   name: string;
@@ -63,13 +40,6 @@ type ProductFormState = {
   attributes: string;
 };
 
-const DEFAULT_FILTERS: ProductFilters = {
-  query: '',
-  category: '',
-  brand: '',
-  status: 'all',
-};
-
 const DEFAULT_FORM: ProductFormState = {
   name: '',
   category: '',
@@ -84,43 +54,6 @@ const DEFAULT_FORM: ProductFormState = {
   tags: '',
   attributes: '',
 };
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: object): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function deleteJson(url: string): Promise<void> {
-  const response = await fetch(url, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-}
-
-function buildProductsUrl(filters: ProductFilters) {
-  const params = new URLSearchParams();
-  if (filters.query.trim()) params.set('query', filters.query.trim());
-  if (filters.category.trim()) params.set('category', filters.category.trim());
-  if (filters.brand.trim()) params.set('brand', filters.brand.trim());
-  if (filters.status !== 'all') params.set('status', filters.status);
-  params.set('limit', '300');
-  return `/api/kb/products?${params.toString()}`;
-}
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -163,32 +96,14 @@ function statusBadgeClass(status: string) {
 }
 
 export function ProductPageClient() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [filters, setFilters] = useState<ProductFilters>(DEFAULT_FILTERS);
-  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<ProductFilters>(DEFAULT_PRODUCT_FILTERS);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadProducts = useCallback(async (nextFilters: ProductFilters) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getJson<Product[]>(buildProductsUrl(nextFilters));
-      setProducts(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '加载产品列表失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProducts(DEFAULT_FILTERS);
-  }, [loadProducts]);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const { products, loading, error, refresh, create, update, remove, clearError } = useProducts();
 
   const editingProduct = useMemo(
     () => products.find((item) => item.id === editingProductId) ?? null,
@@ -235,11 +150,11 @@ export function ProductPageClient() {
 
   async function handleSave() {
     if (!form.name.trim() && !form.model.trim() && !form.sku.trim()) {
-      setError('名称、型号、货号至少填写一项');
+      setValidationError('名称、型号、货号至少填写一项');
       return;
     }
 
-    const payload = {
+    const payload: ProductPayload = {
       name: form.name.trim(),
       category: form.category.trim(),
       brand: form.brand.trim(),
@@ -256,16 +171,15 @@ export function ProductPageClient() {
 
     try {
       setSaving(true);
-      setError(null);
+      setValidationError(null);
+      clearError();
       if (editingProductId) {
-        await sendJson(`/api/kb/products/${editingProductId}`, 'PATCH', payload);
+        await update(editingProductId, payload);
       } else {
-        await sendJson('/api/kb/products', 'POST', payload);
+        await create(payload);
       }
       closeDialog();
-      await loadProducts(filters);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '保存产品失败');
+    } catch {
     } finally {
       setSaving(false);
     }
@@ -279,29 +193,30 @@ export function ProductPageClient() {
 
     try {
       setDeletingId(product.id);
-      setError(null);
-      await deleteJson(`/api/kb/products/${product.id}`);
-      await loadProducts(filters);
+      setValidationError(null);
+      clearError();
+      await remove(product.id);
       if (editingProductId === product.id) {
         closeDialog();
       }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '删除产品失败');
+    } catch {
     } finally {
       setDeletingId(null);
     }
   }
 
+  const displayError = validationError ?? error;
+
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.14),_transparent_24%),linear-gradient(180deg,_transparent,_rgba(15,23,42,0.03))]">
       <div className="px-4 py-6 md:px-8 md:py-8">
-        {error ? (
+        {displayError ? (
           <Surface
             className="mb-6 px-4 py-3 text-sm text-red-700 dark:text-red-300"
             variant="muted"
             radius="lg"
           >
-            {error}
+            {displayError}
           </Surface>
         ) : null}
 
@@ -315,7 +230,15 @@ export function ProductPageClient() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void loadProducts(filters)} disabled={loading}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setValidationError(null);
+                clearError();
+                void refresh(filters).catch(() => undefined);
+              }}
+              disabled={loading}
+            >
               <RefreshCcw className={cn(loading && 'animate-spin')} />
               刷新
             </Button>
@@ -380,7 +303,14 @@ export function ProductPageClient() {
                 <SelectItem value="discontinued">停用</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={() => void loadProducts(filters)} disabled={loading}>
+            <Button
+              onClick={() => {
+                setValidationError(null);
+                clearError();
+                void refresh(filters).catch(() => undefined);
+              }}
+              disabled={loading}
+            >
               <Search />
               查询
             </Button>

@@ -16,38 +16,9 @@ import { Input } from '@/components/ui/input';
 import { InteractiveCard } from '@/components/ui/interactive-card';
 import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
+import { deleteJson, getJson, patchJson, postJson } from '@/lib/api';
 import { cn } from '@/lib/shadcn/utils';
-
-type AgentProfile = {
-  id: string;
-  name: string;
-  description: string;
-  opening_message: string;
-  idle_timeout_seconds: number;
-  max_idle_reminders: number;
-  idle_reminder_message: string;
-  idle_goodbye_message: string;
-  system_prompt: string;
-  fallback_prompt: string;
-  chat_model_profile_id: string | null;
-  retrieval_top_k: number;
-  knowledge_base_ids: string[];
-  is_default: number;
-  created_at: string;
-  updated_at: string;
-};
-
-type ChatModelProfile = {
-  id: string;
-  name: string;
-  model: string;
-};
-
-type KnowledgeBase = {
-  id: string;
-  name: string;
-  description: string;
-};
+import type { AgentProfile, ChatModelProfile, KnowledgeBase } from '@/types';
 
 type AgentProfileForm = {
   name: string;
@@ -113,33 +84,6 @@ const EDITOR_SECTIONS: Array<{
     description: '角色约束、兜底策略和知识缺失时的处理方式。',
   },
 ];
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: object): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function deleteJson(url: string): Promise<void> {
-  const response = await fetch(url, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-}
 
 export function AgentPageClient() {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
@@ -270,9 +214,9 @@ export function AgentPageClient() {
         is_default: editingProfile?.is_default ? true : false,
       };
       if (editingProfileId) {
-        await sendJson(`/api/kb/agent-profiles/${editingProfileId}`, 'PATCH', payload);
+        await patchJson(`/api/kb/agent-profiles/${editingProfileId}`, payload);
       } else {
-        await sendJson('/api/kb/agent-profiles', 'POST', payload);
+        await postJson('/api/kb/agent-profiles', payload);
       }
       closeDialog();
       await loadData();

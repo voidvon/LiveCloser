@@ -43,76 +43,14 @@ import {
 } from '@/components/ui/sheet';
 import { SidebarSheetButton } from '@/components/ui/sidebar-sheet-button';
 import { Surface } from '@/components/ui/surface';
-
-type EmbeddingProfile = {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  base_url: string;
-  api_key_env: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type ChatModelProfile = {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  base_url: string;
-  api_key: string;
-  is_default: number;
-  created_at: string;
-  updated_at: string;
-};
-
-type SttModelProfile = {
-  id: string;
-  name: string;
-  provider: string;
-  auth_mode: string;
-  api_key: string;
-  app_id: string;
-  access_token: string;
-  uid: string;
-  resource_id: string;
-  cluster: string;
-  ws_url: string;
-  language: string;
-  is_default: number;
-  created_at: string;
-  updated_at: string;
-};
-
-type TtsModelProfile = {
-  id: string;
-  name: string;
-  provider: string;
-  auth_mode: string;
-  api_key: string;
-  app_id: string;
-  access_token: string;
-  uid: string;
-  resource_id: string;
-  cluster: string;
-  http_url: string;
-  voice_type: string;
-  encoding: string;
-  sample_rate: number;
-  speed_ratio: number;
-  volume_ratio: number;
-  pitch_ratio: number;
-  is_default: number;
-  created_at: string;
-  updated_at: string;
-};
-
-type KnowledgeBase = {
-  id: string;
-  name: string;
-  embedding_profile_id: string | null;
-};
+import { deleteJson, getJson, patchJson, postJson } from '@/lib/api';
+import type {
+  ChatModelProfile,
+  EmbeddingProfile,
+  KnowledgeBase,
+  SttModelProfile,
+  TtsModelProfile,
+} from '@/types';
 
 type LoadState = 'idle' | 'loading' | 'error';
 type EditorMode = 'create' | 'edit';
@@ -203,41 +141,6 @@ const MODEL_TABS: Array<{
   { id: 'stt', label: 'STT', icon: Waves },
   { id: 'tts', label: 'TTS', icon: Volume2 },
 ];
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function sendJson<T>(url: string, method: 'POST' | 'PATCH', payload: object): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function postJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { method: 'POST' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-  return response.json();
-}
-
-async function deleteJson(url: string): Promise<void> {
-  const response = await fetch(url, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-}
 
 function toForm(profile: ManagedModel | null): ProfileForm {
   if (!profile) return DEFAULT_PROFILE_FORM;
@@ -586,13 +489,9 @@ export function SettingsPageClient() {
         };
 
         if (mode === 'create') {
-          await sendJson<ChatModelProfile>(getRouteBase('chat'), 'POST', payload);
+          await postJson<ChatModelProfile>(getRouteBase('chat'), payload);
         } else if (editingModel?.kind === 'chat') {
-          await sendJson<ChatModelProfile>(
-            `${getRouteBase('chat')}/${editingModel.id}`,
-            'PATCH',
-            payload
-          );
+          await patchJson<ChatModelProfile>(`${getRouteBase('chat')}/${editingModel.id}`, payload);
         }
       } else if (profileForm.kind === 'embedding') {
         const payload = {
@@ -604,11 +503,10 @@ export function SettingsPageClient() {
         };
 
         if (mode === 'create') {
-          await sendJson<EmbeddingProfile>(getRouteBase('embedding'), 'POST', payload);
+          await postJson<EmbeddingProfile>(getRouteBase('embedding'), payload);
         } else if (editingModel?.kind === 'embedding') {
-          await sendJson<EmbeddingProfile>(
+          await patchJson<EmbeddingProfile>(
             `${getRouteBase('embedding')}/${editingModel.id}`,
-            'PATCH',
             payload
           );
         }
@@ -642,13 +540,9 @@ export function SettingsPageClient() {
         };
 
         if (mode === 'create') {
-          await sendJson<SttModelProfile>(getRouteBase('stt'), 'POST', payload);
+          await postJson<SttModelProfile>(getRouteBase('stt'), payload);
         } else if (editingModel?.kind === 'stt') {
-          await sendJson<SttModelProfile>(
-            `${getRouteBase('stt')}/${editingModel.id}`,
-            'PATCH',
-            payload
-          );
+          await patchJson<SttModelProfile>(`${getRouteBase('stt')}/${editingModel.id}`, payload);
         }
       } else {
         if (!profileForm.resource_id.trim() && !profileForm.cluster.trim()) {
@@ -688,13 +582,9 @@ export function SettingsPageClient() {
         };
 
         if (mode === 'create') {
-          await sendJson<TtsModelProfile>(getRouteBase('tts'), 'POST', payload);
+          await postJson<TtsModelProfile>(getRouteBase('tts'), payload);
         } else if (editingModel?.kind === 'tts') {
-          await sendJson<TtsModelProfile>(
-            `${getRouteBase('tts')}/${editingModel.id}`,
-            'PATCH',
-            payload
-          );
+          await patchJson<TtsModelProfile>(`${getRouteBase('tts')}/${editingModel.id}`, payload);
         }
       }
 
