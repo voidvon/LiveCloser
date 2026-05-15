@@ -30,7 +30,7 @@ export function AppShell({ children }: AppShellProps) {
               </p>
               <h1 className="mt-3 text-2xl font-semibold tracking-tight">工作台</h1>
               <p className="text-muted-foreground mt-2 max-w-xs text-sm leading-6">
-                在这里管理实时会话，以及它依赖的知识库系统。
+                在这里管理实时会话，以及它依赖的知识库和结构化产品目录。
               </p>
             </div>
 
@@ -83,7 +83,7 @@ export function AppShell({ children }: AppShellProps) {
             >
               <p className="font-mono text-[11px] font-bold tracking-[0.22em] uppercase">知识栈</p>
               <p className="text-muted-foreground mt-2 text-sm leading-6">
-                支持多知识库检索；模型在设置页统一维护，知识库页只负责选择使用哪个模型。
+                结构化产品先做精确查询，知识库再负责 FAQ、方案和销售话术补充。
               </p>
             </Surface>
 

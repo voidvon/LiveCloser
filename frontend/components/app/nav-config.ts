@@ -1,7 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import { BookOpen, Bot, MessageSquare, Settings2 } from 'lucide-react';
+import { BookOpen, Bot, Boxes, MessageSquare, Settings2 } from 'lucide-react';
 
 export type AppNavItem = {
   href: string;
@@ -28,6 +28,12 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
     label: '智能体',
     description: '提示词、模型与检索策略',
     icon: Bot,
+  },
+  {
+    href: '/products',
+    label: '产品',
+    description: '结构化商品目录与主数据管理',
+    icon: Boxes,
   },
   {
     href: '/settings',

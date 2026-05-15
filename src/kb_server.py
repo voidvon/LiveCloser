@@ -55,6 +55,21 @@ class KnowledgeBasePayload(BaseModel):
     retrieval_top_k: int = 5
 
 
+class ProductPayload(BaseModel):
+    name: str = ""
+    category: str = ""
+    brand: str = ""
+    model: str = Field(default="", max_length=120)
+    sku: str = ""
+    aliases: str = ""
+    price: str = ""
+    currency: str = "CNY"
+    status: str = "active"
+    summary: str = ""
+    tags: str = ""
+    attributes: str = ""
+
+
 class CategoryPayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     parent_id: Optional[str] = None
@@ -170,6 +185,54 @@ def health():
 @app.get("/knowledge-bases")
 def list_knowledge_bases():
     return service.list_knowledge_bases()
+
+
+@app.get("/products")
+def list_products(
+    query: str = "",
+    category: str = "",
+    brand: str = "",
+    model: str = "",
+    sku: str = "",
+    status: str = "",
+    limit: int = 200,
+):
+    return service.list_products(
+        query=query,
+        category=category,
+        brand=brand,
+        model=model,
+        sku=sku,
+        status=status,
+        limit=limit,
+    )
+
+
+@app.post("/products")
+def create_product(payload: ProductPayload):
+    try:
+        return service.create_product(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/products/{product_id}")
+def update_product(product_id: str, payload: ProductPayload):
+    try:
+        record = service.update_product(product_id, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return record
+
+
+@app.delete("/products/{product_id}")
+def delete_product(product_id: str):
+    deleted = service.delete_product(product_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"ok": True}
 
 
 @app.get("/embedding-profiles")

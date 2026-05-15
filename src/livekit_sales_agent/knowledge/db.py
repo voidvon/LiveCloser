@@ -116,10 +116,57 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         column_name="idle_goodbye_message",
         column_sql="TEXT NOT NULL DEFAULT ''",
     )
+    added_product_category = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="category",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_product_brand = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="brand",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_product_sku = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="sku",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_product_aliases = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="aliases",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_product_tags = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="tags",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
+    added_product_attributes = _ensure_column(
+        conn,
+        table_name="products",
+        column_name="attributes",
+        column_sql="TEXT NOT NULL DEFAULT ''",
+    )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_knowledge_bases_embedding_profile_id ON knowledge_bases(embedding_profile_id)"
     )
     _backfill_embedding_profiles(conn)
+    if any(
+        [
+            added_product_category,
+            added_product_brand,
+            added_product_sku,
+            added_product_aliases,
+            added_product_tags,
+            added_product_attributes,
+        ]
+    ):
+        _backfill_generic_product_fields(conn)
     if added_opening_message:
         _backfill_agent_profile_opening_messages(conn)
     if added_idle_timeout_seconds or added_max_idle_reminders:
@@ -228,6 +275,74 @@ def _backfill_embedding_profiles(conn: sqlite3.Connection) -> None:
         conn.execute(
             "UPDATE knowledge_bases SET embedding_profile_id = ? WHERE id = ?",
             (profile_id, kb["id"]),
+        )
+
+
+def _backfill_generic_product_fields(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(products)").fetchall()}
+    if not columns:
+        return
+
+    has_legacy_columns = {"product_type", "series", "alias", "pressure_range", "connection_size", "material", "application", "keywords"}.issubset(columns)
+    if not has_legacy_columns:
+        return
+
+    rows = conn.execute(
+        """
+        SELECT
+            id,
+            category,
+            brand,
+            sku,
+            aliases,
+            tags,
+            attributes,
+            product_type,
+            series,
+            alias,
+            pressure_range,
+            connection_size,
+            material,
+            application,
+            keywords
+        FROM products
+        """
+    ).fetchall()
+
+    for row in rows:
+        category = row["category"] or row["product_type"] or ""
+        aliases = row["aliases"] or row["alias"] or ""
+        tags = row["tags"] or row["keywords"] or ""
+
+        attribute_lines: list[str] = []
+        if row["series"]:
+            attribute_lines.append(f"series: {row['series']}")
+        if row["pressure_range"]:
+            attribute_lines.append(f"pressure_range: {row['pressure_range']}")
+        if row["connection_size"]:
+            attribute_lines.append(f"connection_size: {row['connection_size']}")
+        if row["material"]:
+            attribute_lines.append(f"material: {row['material']}")
+        if row["application"]:
+            attribute_lines.append(f"application: {row['application']}")
+
+        existing_attributes = (row["attributes"] or "").strip()
+        derived_attributes = "\n".join(attribute_lines).strip()
+        attributes = existing_attributes or derived_attributes
+
+        conn.execute(
+            """
+            UPDATE products
+            SET category = ?, aliases = ?, tags = ?, attributes = ?
+            WHERE id = ?
+            """,
+            (
+                category,
+                aliases,
+                tags,
+                attributes,
+                row["id"],
+            ),
         )
 
 

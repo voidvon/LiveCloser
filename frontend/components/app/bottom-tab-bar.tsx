@@ -20,7 +20,10 @@ export function BottomTabBar({ className }: BottomTabBarProps) {
       )}
       aria-label="主导航"
     >
-      <div className="grid h-[calc(72px+env(safe-area-inset-bottom))] grid-cols-4 px-2 pb-[env(safe-area-inset-bottom)]">
+      <div
+        className="grid h-[calc(72px+env(safe-area-inset-bottom))] px-2 pb-[env(safe-area-inset-bottom)]"
+        style={{ gridTemplateColumns: `repeat(${APP_NAV_ITEMS.length}, minmax(0, 1fr))` }}
+      >
         {APP_NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = isNavItemActive(pathname, item.href);

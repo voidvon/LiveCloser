@@ -22,6 +22,25 @@ class KnowledgeBaseRecord:
 
 
 @dataclass
+class ProductRecord:
+    id: str
+    name: str
+    category: str
+    brand: str
+    model: str
+    sku: str
+    aliases: str
+    price: str
+    currency: str
+    status: str
+    summary: str
+    tags: str
+    attributes: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
 class EmbeddingProfileRecord:
     id: str
     name: str

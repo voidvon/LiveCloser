@@ -34,6 +34,7 @@ from livekit_sales_agent.config import (
 )
 from livekit_sales_agent.knowledge.db import ensure_database
 from livekit_sales_agent.knowledge.retrieval import RetrievalService
+from livekit_sales_agent.knowledge.service import KnowledgeService
 from livekit_sales_agent.prompts import build_instructions
 from livekit_sales_agent.voice import build_stt, build_tts
 
@@ -44,6 +45,11 @@ settings = Settings.from_env()
 ensure_database(settings.kb_data_dir / "app.db")
 retrieval_service = RetrievalService(
     db_path=settings.kb_data_dir / "app.db",
+    chroma_root=settings.kb_data_dir / "chroma",
+)
+knowledge_service = KnowledgeService(
+    db_path=settings.kb_data_dir / "app.db",
+    files_root=settings.kb_data_dir / "files",
     chroma_root=settings.kb_data_dir / "chroma",
 )
 conversation_service = ConversationService(db_path=settings.kb_data_dir / "app.db")
@@ -327,6 +333,33 @@ class SalesAgent(Agent):
         del context
         return self._search_knowledge_base(query)
 
+    @function_tool()
+    async def search_products(
+        self,
+        context: RunContext,
+        query: str = "",
+        category: str = "",
+        brand: str = "",
+        model: str = "",
+        sku: str = "",
+        status: str = "",
+        limit: int = 10,
+    ) -> str:
+        """Search the structured product catalog for exact models, specs, prices, and product lists.
+
+        Use this tool when the user asks for product models, technical parameters, prices, or comparisons.
+        """
+        del context
+        return self._search_products(
+            query=query,
+            category=category,
+            brand=brand,
+            model=model,
+            sku=sku,
+            status=status,
+            limit=limit,
+        )
+
     def _resolve_search_kb_ids(self) -> list[str]:
         return list(self._agent_profile.knowledge_base_ids)
 
@@ -355,6 +388,57 @@ class SalesAgent(Agent):
             return "没有检索到相关知识。"
 
         return self._format_search_results(results)
+
+    def _search_products(
+        self,
+        *,
+        query: str,
+        category: str,
+        brand: str,
+        model: str,
+        sku: str,
+        status: str,
+        limit: int,
+    ) -> str:
+        try:
+            products = knowledge_service.list_products(
+                query=query,
+                category=category,
+                brand=brand,
+                model=model,
+                sku=sku,
+                status=status,
+                limit=limit,
+            )
+        except Exception as exc:
+            return f"产品目录查询失败：{exc}"
+
+        if not products:
+            return "没有查询到匹配的产品。"
+
+        parts: list[str] = []
+        for index, product in enumerate(products, start=1):
+            primary_label = product.model or product.sku or product.name or "未命名商品"
+            lines = [
+                f"[{index}] {primary_label}",
+                f"名称：{product.name or '-'}",
+                f"分类：{product.category or '-'}",
+                f"品牌：{product.brand or '-'}",
+                f"型号：{product.model or '-'}",
+                f"货号：{product.sku or '-'}",
+                f"别名：{product.aliases or '-'}",
+                f"价格：{product.price or '-'}",
+                f"价格更新时间：{product.updated_at}",
+                f"状态：{product.status or '-'}",
+            ]
+            if product.summary:
+                lines.append(f"简介：{product.summary}")
+            if product.tags:
+                lines.append(f"标签：{product.tags}")
+            if product.attributes:
+                lines.append(f"扩展属性：{product.attributes}")
+            parts.append("\n".join(lines))
+        return "\n\n".join(parts)
 
     def _build_rag_context(self, *, query: str, results: list[dict[str, object]]) -> str:
         return (

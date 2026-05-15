@@ -59,6 +59,25 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        brand TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        sku TEXT NOT NULL DEFAULT '',
+        aliases TEXT NOT NULL DEFAULT '',
+        price TEXT NOT NULL DEFAULT '',
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        status TEXT NOT NULL DEFAULT 'active',
+        summary TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        attributes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS stt_model_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -229,6 +248,12 @@ SCHEMA_STATEMENTS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_single_default ON agent_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_agent_profile_kb_bindings_agent_profile_id ON agent_profile_kb_bindings(agent_profile_id)",
     "CREATE INDEX IF NOT EXISTS idx_agent_profile_kb_bindings_kb_id ON agent_profile_kb_bindings(kb_id)",
+    "CREATE INDEX IF NOT EXISTS idx_products_model ON products(model)",
+    "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
+    "CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)",
+    "CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)",
+    "CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)",
+    "CREATE INDEX IF NOT EXISTS idx_products_updated_at ON products(updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_stt_model_profiles_updated_at ON stt_model_profiles(updated_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_stt_model_profiles_single_default ON stt_model_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_tts_model_profiles_updated_at ON tts_model_profiles(updated_at)",
