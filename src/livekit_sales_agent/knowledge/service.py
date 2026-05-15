@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from livekit_sales_agent.config import load_chat_model_settings
+from livekit_sales_agent.profiles import ProfileService
 
 from .db import connect
 from .jobs import JobRunner
@@ -27,137 +26,13 @@ class KnowledgeService:
         self._files_root = files_root
         self._chroma_store = ChromaStore(root_dir=chroma_root)
         self._job_runner = JobRunner(db_path=db_path, chroma_root=chroma_root)
+        self._profile_service = ProfileService(db_path=db_path)
         self._retrieval_service = RetrievalService(db_path=db_path, chroma_root=chroma_root)
 
     def list_knowledge_bases(self):
         with connect(self._db_path) as conn:
             repo = KnowledgeBaseRepository(conn)
             return repo.list_knowledge_bases()
-
-    @staticmethod
-    def _normalize_product_text(value: str) -> str:
-        return value.strip()
-
-    def list_products(
-        self,
-        *,
-        query: str = "",
-        category: str = "",
-        brand: str = "",
-        model: str = "",
-        sku: str = "",
-        status: str = "",
-        limit: int = 200,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_products(
-                query=self._normalize_product_text(query),
-                category=self._normalize_product_text(category),
-                brand=self._normalize_product_text(brand),
-                model=self._normalize_product_text(model),
-                sku=self._normalize_product_text(sku),
-                status=self._normalize_product_text(status),
-                limit=limit,
-            )
-
-    def get_product(self, product_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.get_product(product_id)
-
-    def create_product(
-        self,
-        *,
-        name: str,
-        category: str,
-        brand: str,
-        model: str,
-        sku: str,
-        aliases: str,
-        price: str,
-        currency: str,
-        status: str,
-        summary: str,
-        tags: str,
-        attributes: str,
-    ):
-        normalized_name = name.strip()
-        normalized_model = model.strip()
-        normalized_sku = sku.strip()
-        if not any([normalized_name, normalized_model, normalized_sku]):
-            raise ValueError("名称、型号、货号至少填写一项")
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            if normalized_model and repo.list_products(model=normalized_model, limit=1):
-                raise ValueError("产品型号不能重复")
-            if normalized_sku and repo.list_products(sku=normalized_sku, limit=1):
-                raise ValueError("产品货号不能重复")
-            return repo.create_product(
-                name=normalized_name,
-                category=self._normalize_product_text(category),
-                brand=self._normalize_product_text(brand),
-                model=normalized_model,
-                sku=normalized_sku,
-                aliases=self._normalize_product_text(aliases),
-                price=self._normalize_product_text(price),
-                currency=self._normalize_product_text(currency) or "CNY",
-                status=self._normalize_product_text(status) or "active",
-                summary=self._normalize_product_text(summary),
-                tags=self._normalize_product_text(tags),
-                attributes=self._normalize_product_text(attributes),
-            )
-
-    def update_product(
-        self,
-        product_id: str,
-        *,
-        name: str,
-        category: str,
-        brand: str,
-        model: str,
-        sku: str,
-        aliases: str,
-        price: str,
-        currency: str,
-        status: str,
-        summary: str,
-        tags: str,
-        attributes: str,
-    ):
-        normalized_name = name.strip()
-        normalized_model = model.strip()
-        normalized_sku = sku.strip()
-        if not any([normalized_name, normalized_model, normalized_sku]):
-            raise ValueError("名称、型号、货号至少填写一项")
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            model_duplicates = repo.list_products(model=normalized_model, limit=5) if normalized_model else []
-            if any(item.id != product_id for item in model_duplicates):
-                raise ValueError("产品型号不能重复")
-            sku_duplicates = repo.list_products(sku=normalized_sku, limit=5) if normalized_sku else []
-            if any(item.id != product_id for item in sku_duplicates):
-                raise ValueError("产品货号不能重复")
-            return repo.update_product(
-                product_id,
-                name=normalized_name,
-                category=self._normalize_product_text(category),
-                brand=self._normalize_product_text(brand),
-                model=normalized_model,
-                sku=normalized_sku,
-                aliases=self._normalize_product_text(aliases),
-                price=self._normalize_product_text(price),
-                currency=self._normalize_product_text(currency) or "CNY",
-                status=self._normalize_product_text(status) or "active",
-                summary=self._normalize_product_text(summary),
-                tags=self._normalize_product_text(tags),
-                attributes=self._normalize_product_text(attributes),
-            )
-
-    def delete_product(self, product_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.delete_product(product_id)
 
     @staticmethod
     def _ensure_knowledge_base_exists(repo: KnowledgeBaseRepository, kb_id: str) -> None:
@@ -196,445 +71,8 @@ class KnowledgeService:
             return "text/markdown"
         return "text/plain"
 
-    def list_chat_model_profiles(self):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_chat_model_profiles()
-
-    def list_agent_profiles(self):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_agent_profiles()
-
-    @staticmethod
-    def _normalize_knowledge_base_ids(knowledge_base_ids: list[str]) -> list[str]:
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for kb_id in knowledge_base_ids:
-            value = kb_id.strip()
-            if not value or value in seen:
-                continue
-            deduped.append(value)
-            seen.add(value)
-        return deduped
-
-    @staticmethod
-    def _validate_agent_profile_dependencies(
-        repo: KnowledgeBaseRepository,
-        *,
-        chat_model_profile_id: Optional[str],
-        knowledge_base_ids: list[str],
-        retrieval_top_k: int,
-        idle_timeout_seconds: float,
-        max_idle_reminders: int,
-    ) -> None:
-        if retrieval_top_k <= 0:
-            raise ValueError("向量召回数量必须大于 0")
-        if idle_timeout_seconds < 0:
-            raise ValueError("无人应答超时时间不能小于 0")
-        if max_idle_reminders < 0:
-            raise ValueError("无人应答提醒次数不能小于 0")
-        if chat_model_profile_id and repo.get_chat_model_profile(chat_model_profile_id) is None:
-            raise ValueError("智能体绑定的对话模型不存在")
-        missing_kb_ids = [kb_id for kb_id in knowledge_base_ids if repo.get_knowledge_base(kb_id) is None]
-        if missing_kb_ids:
-            raise ValueError("智能体绑定的知识库不存在")
-
-    def create_agent_profile(
-        self,
-        *,
-        name: str,
-        description: str,
-        opening_message: str,
-        idle_timeout_seconds: float,
-        max_idle_reminders: int,
-        idle_reminder_message: str,
-        idle_goodbye_message: str,
-        system_prompt: str,
-        fallback_prompt: str,
-        chat_model_profile_id: Optional[str],
-        retrieval_top_k: int,
-        knowledge_base_ids: list[str],
-        is_default: bool,
-    ):
-        normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            self._validate_agent_profile_dependencies(
-                repo,
-                chat_model_profile_id=chat_model_profile_id,
-                knowledge_base_ids=normalized_kb_ids,
-                retrieval_top_k=retrieval_top_k,
-                idle_timeout_seconds=idle_timeout_seconds,
-                max_idle_reminders=max_idle_reminders,
-            )
-            try:
-                return repo.create_agent_profile(
-                    name=name,
-                    description=description,
-                    opening_message=opening_message,
-                    idle_timeout_seconds=idle_timeout_seconds,
-                    max_idle_reminders=max_idle_reminders,
-                    idle_reminder_message=idle_reminder_message,
-                    idle_goodbye_message=idle_goodbye_message,
-                    system_prompt=system_prompt,
-                    fallback_prompt=fallback_prompt,
-                    chat_model_profile_id=chat_model_profile_id,
-                    retrieval_top_k=retrieval_top_k,
-                    knowledge_base_ids=normalized_kb_ids,
-                    is_default=is_default,
-                )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError("智能体名称不能重复") from exc
-
-    def update_agent_profile(
-        self,
-        profile_id: str,
-        *,
-        name: str,
-        description: str,
-        opening_message: str,
-        idle_timeout_seconds: float,
-        max_idle_reminders: int,
-        idle_reminder_message: str,
-        idle_goodbye_message: str,
-        system_prompt: str,
-        fallback_prompt: str,
-        chat_model_profile_id: Optional[str],
-        retrieval_top_k: int,
-        knowledge_base_ids: list[str],
-        is_default: bool,
-    ):
-        normalized_kb_ids = self._normalize_knowledge_base_ids(knowledge_base_ids)
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            self._validate_agent_profile_dependencies(
-                repo,
-                chat_model_profile_id=chat_model_profile_id,
-                knowledge_base_ids=normalized_kb_ids,
-                retrieval_top_k=retrieval_top_k,
-                idle_timeout_seconds=idle_timeout_seconds,
-                max_idle_reminders=max_idle_reminders,
-            )
-            try:
-                return repo.update_agent_profile(
-                    profile_id,
-                    name=name,
-                    description=description,
-                    opening_message=opening_message,
-                    idle_timeout_seconds=idle_timeout_seconds,
-                    max_idle_reminders=max_idle_reminders,
-                    idle_reminder_message=idle_reminder_message,
-                    idle_goodbye_message=idle_goodbye_message,
-                    system_prompt=system_prompt,
-                    fallback_prompt=fallback_prompt,
-                    chat_model_profile_id=chat_model_profile_id,
-                    retrieval_top_k=retrieval_top_k,
-                    knowledge_base_ids=normalized_kb_ids,
-                    is_default=is_default,
-                )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError("智能体名称不能重复") from exc
-
-    def delete_agent_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.delete_agent_profile(profile_id)
-
-    def create_chat_model_profile(
-        self,
-        *,
-        name: str,
-        provider: str,
-        model: str,
-        base_url: str,
-        api_key: str,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.create_chat_model_profile(
-                name=name,
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                api_key=api_key,
-                is_default=is_default,
-            )
-
-    def update_chat_model_profile(
-        self,
-        profile_id: str,
-        *,
-        name: str,
-        provider: str,
-        model: str,
-        base_url: str,
-        api_key: str,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.update_chat_model_profile(
-                profile_id,
-                name=name,
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                api_key=api_key,
-                is_default=is_default,
-            )
-
-    def set_default_chat_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.set_default_chat_model_profile(profile_id)
-
-    def delete_chat_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.delete_chat_model_profile(profile_id)
-
-    def list_stt_model_profiles(self):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_stt_model_profiles()
-
-    def create_stt_model_profile(
-        self,
-        *,
-        name: str,
-        provider: str,
-        auth_mode: str,
-        api_key: str,
-        app_id: str,
-        access_token: str,
-        uid: str,
-        resource_id: str,
-        cluster: str,
-        ws_url: str,
-        language: str,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.create_stt_model_profile(
-                name=name,
-                provider=provider,
-                auth_mode=auth_mode,
-                api_key=api_key,
-                app_id=app_id,
-                access_token=access_token,
-                uid=uid,
-                resource_id=resource_id,
-                cluster=cluster,
-                ws_url=ws_url,
-                language=language,
-                is_default=is_default,
-            )
-
-    def update_stt_model_profile(
-        self,
-        profile_id: str,
-        *,
-        name: str,
-        provider: str,
-        auth_mode: str,
-        api_key: str,
-        app_id: str,
-        access_token: str,
-        uid: str,
-        resource_id: str,
-        cluster: str,
-        ws_url: str,
-        language: str,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.update_stt_model_profile(
-                profile_id,
-                name=name,
-                provider=provider,
-                auth_mode=auth_mode,
-                api_key=api_key,
-                app_id=app_id,
-                access_token=access_token,
-                uid=uid,
-                resource_id=resource_id,
-                cluster=cluster,
-                ws_url=ws_url,
-                language=language,
-                is_default=is_default,
-            )
-
-    def set_default_stt_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.set_default_stt_model_profile(profile_id)
-
-    def delete_stt_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.delete_stt_model_profile(profile_id)
-
-    def list_tts_model_profiles(self):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_tts_model_profiles()
-
-    def create_tts_model_profile(
-        self,
-        *,
-        name: str,
-        provider: str,
-        auth_mode: str,
-        api_key: str,
-        app_id: str,
-        access_token: str,
-        uid: str,
-        resource_id: str,
-        cluster: str,
-        http_url: str,
-        voice_type: str,
-        encoding: str,
-        sample_rate: int,
-        speed_ratio: float,
-        volume_ratio: float,
-        pitch_ratio: float,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.create_tts_model_profile(
-                name=name,
-                provider=provider,
-                auth_mode=auth_mode,
-                api_key=api_key,
-                app_id=app_id,
-                access_token=access_token,
-                uid=uid,
-                resource_id=resource_id,
-                cluster=cluster,
-                http_url=http_url,
-                voice_type=voice_type,
-                encoding=encoding,
-                sample_rate=sample_rate,
-                speed_ratio=speed_ratio,
-                volume_ratio=volume_ratio,
-                pitch_ratio=pitch_ratio,
-                is_default=is_default,
-            )
-
-    def update_tts_model_profile(
-        self,
-        profile_id: str,
-        *,
-        name: str,
-        provider: str,
-        auth_mode: str,
-        api_key: str,
-        app_id: str,
-        access_token: str,
-        uid: str,
-        resource_id: str,
-        cluster: str,
-        http_url: str,
-        voice_type: str,
-        encoding: str,
-        sample_rate: int,
-        speed_ratio: float,
-        volume_ratio: float,
-        pitch_ratio: float,
-        is_default: bool,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.update_tts_model_profile(
-                profile_id,
-                name=name,
-                provider=provider,
-                auth_mode=auth_mode,
-                api_key=api_key,
-                app_id=app_id,
-                access_token=access_token,
-                uid=uid,
-                resource_id=resource_id,
-                cluster=cluster,
-                http_url=http_url,
-                voice_type=voice_type,
-                encoding=encoding,
-                sample_rate=sample_rate,
-                speed_ratio=speed_ratio,
-                volume_ratio=volume_ratio,
-                pitch_ratio=pitch_ratio,
-                is_default=is_default,
-            )
-
-    def set_default_tts_model_profile(self, profile_id: str):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.set_default_tts_model_profile(profile_id)
-
-    def delete_tts_model_profile(self, profile_id: str) -> bool:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.delete_tts_model_profile(profile_id)
-
-    def list_embedding_profiles(self):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.list_embedding_profiles()
-
     def resume_pending_jobs(self) -> None:
         self._job_runner.resume_pending_jobs()
-
-    def create_embedding_profile(
-        self,
-        *,
-        name: str,
-        provider: str,
-        model: str,
-        base_url: str,
-        api_key_env: str,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.create_embedding_profile(
-                name=name,
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                api_key_env=api_key_env,
-            )
-
-    def update_embedding_profile(
-        self,
-        profile_id: str,
-        *,
-        name: str,
-        provider: str,
-        model: str,
-        base_url: str,
-        api_key_env: str,
-    ):
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            return repo.update_embedding_profile(
-                profile_id,
-                name=name,
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                api_key_env=api_key_env,
-            )
-
-    def delete_embedding_profile(self, profile_id: str) -> tuple[bool, bool]:
-        with connect(self._db_path) as conn:
-            repo = KnowledgeBaseRepository(conn)
-            if repo.count_knowledge_bases_using_embedding_profile(profile_id) > 0:
-                return False, True
-            return repo.delete_embedding_profile(profile_id), False
 
     def create_knowledge_base(
         self,
@@ -756,7 +194,7 @@ class KnowledgeService:
             if not is_editable_text_file_name(file_record.original_name):
                 raise ValueError("仅支持编辑 txt 或 md 文档")
 
-        model_settings = load_chat_model_settings(self._db_path)
+        model_settings = self._profile_service.load_chat_model_settings()
         rewrite_service = DocumentRewriteService(model=model_settings)
         parsed_history = [
             RewriteMessage(role=item.get("role", ""), content=item.get("content", ""))
@@ -959,5 +397,28 @@ class KnowledgeService:
         self._job_runner.start_embed_job(job_id=job_record.id)
         return job_record
 
-    def search(self, *, kb_id: str, query: str):
-        return self._retrieval_service.search(kb_id=kb_id, query=query)
+    def search(
+        self,
+        *,
+        kb_id: str,
+        query: str,
+        top_k: int | None = None,
+    ):
+        return self._retrieval_service.search(
+            kb_id=kb_id,
+            query=query,
+            top_k=top_k,
+        )
+
+    def search_many(
+        self,
+        *,
+        knowledge_base_ids: list[str],
+        query: str,
+        top_k: int,
+    ):
+        return self._retrieval_service.search_many(
+            kb_ids=knowledge_base_ids,
+            query=query,
+            top_k=top_k,
+        )

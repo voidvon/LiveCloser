@@ -17,9 +17,10 @@ from livekit_sales_agent.defaults import (  # noqa: E402
     DEFAULT_MAX_IDLE_REMINDERS,
     DEFAULT_OPENING_MESSAGE,
 )
-from livekit_sales_agent.config import Settings, load_agent_profile_settings  # noqa: E402
+from livekit_sales_agent.config import Settings  # noqa: E402
 from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
+from livekit_sales_agent.profiles import ProfileService  # noqa: E402
 
 
 class AgentProfileTest(unittest.TestCase):
@@ -52,8 +53,9 @@ class AgentProfileTest(unittest.TestCase):
                 files_root=root / "files",
                 chroma_root=root / "chroma",
             )
+            profile_service = ProfileService(db_path=db_path)
 
-            default_model = service.create_chat_model_profile(
+            default_model = profile_service.create_chat_model_profile(
                 name="default-model",
                 provider="openai_compatible",
                 model="gpt-4.1-mini",
@@ -61,7 +63,7 @@ class AgentProfileTest(unittest.TestCase):
                 api_key="default-key",
                 is_default=True,
             )
-            custom_model = service.create_chat_model_profile(
+            custom_model = profile_service.create_chat_model_profile(
                 name="agent-model",
                 provider="openai_compatible",
                 model="deepseek-v4-flash",
@@ -69,7 +71,7 @@ class AgentProfileTest(unittest.TestCase):
                 api_key="agent-key",
                 is_default=False,
             )
-            embedding_profile = service.create_embedding_profile(
+            embedding_profile = profile_service.create_embedding_profile(
                 name="embedding",
                 provider="openai_compatible",
                 model="text-embedding-3-small",
@@ -101,7 +103,7 @@ class AgentProfileTest(unittest.TestCase):
                 retrieval_top_k=5,
             )
 
-            agent = service.create_agent_profile(
+            agent = profile_service.create_agent_profile(
                 name="售前顾问",
                 description="负责售前咨询",
                 opening_message="你好，我是售前顾问，先和你确认下你的采购需求。",
@@ -117,12 +119,11 @@ class AgentProfileTest(unittest.TestCase):
                 is_default=True,
             )
 
-            profiles = service.list_agent_profiles()
+            profiles = profile_service.list_agent_profiles()
             self.assertEqual(len(profiles), 1)
             self.assertEqual(profiles[0].knowledge_base_ids, [kb_one.id, kb_two.id])
 
-            resolved = load_agent_profile_settings(
-                db_path,
+            resolved = profile_service.load_agent_profile_settings(
                 agent_profile_id=agent.id,
                 default_retrieval_top_k=3,
             )
@@ -137,8 +138,7 @@ class AgentProfileTest(unittest.TestCase):
             self.assertEqual(resolved.chat_model.model, custom_model.model)
             self.assertTrue(resolved.chat_model.is_deepseek_v4)
 
-            fallback_resolved = load_agent_profile_settings(
-                db_path,
+            fallback_resolved = profile_service.load_agent_profile_settings(
                 agent_profile_id=None,
                 default_retrieval_top_k=3,
             )

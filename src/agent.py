@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Awaitable, Literal, Optional
 
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -22,19 +22,11 @@ from livekit.agents import (
 )
 from livekit.plugins import openai, silero
 
-from livekit_sales_agent.conversation import ConversationService
 from livekit_sales_agent.config import (
     AgentProfileSettings,
     Settings,
-    load_agent_profile_settings,
-    load_stt_fallback_model_settings,
-    load_stt_model_settings,
-    load_tts_fallback_model_settings,
-    load_tts_model_settings,
 )
-from livekit_sales_agent.knowledge.db import ensure_database
-from livekit_sales_agent.knowledge.retrieval import RetrievalService
-from livekit_sales_agent.knowledge.service import KnowledgeService
+from livekit_sales_agent.kb_client import KBClient
 from livekit_sales_agent.prompts import build_instructions
 from livekit_sales_agent.voice import build_stt, build_tts
 
@@ -42,19 +34,34 @@ from livekit_sales_agent.voice import build_stt, build_tts
 load_dotenv()
 
 settings = Settings.from_env()
-ensure_database(settings.kb_data_dir / "app.db")
-retrieval_service = RetrievalService(
-    db_path=settings.kb_data_dir / "app.db",
-    chroma_root=settings.kb_data_dir / "chroma",
-)
-knowledge_service = KnowledgeService(
-    db_path=settings.kb_data_dir / "app.db",
-    files_root=settings.kb_data_dir / "files",
-    chroma_root=settings.kb_data_dir / "chroma",
-)
-conversation_service = ConversationService(db_path=settings.kb_data_dir / "app.db")
+kb_client = KBClient(base_url=settings.kb_api_url)
 server = AgentServer()
 logger = logging.getLogger("livekit_sales_agent.agent")
+
+
+def _schedule_background_task(
+    operation: Awaitable[object],
+    *,
+    task_name: str,
+    conversation_id: Optional[str],
+) -> None:
+    task = asyncio.create_task(operation, name=task_name)
+
+    def _log_result(completed: asyncio.Task[object]) -> None:
+        try:
+            completed.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception(
+                "background kb request failed",
+                extra={
+                    "conversation_id": conversation_id,
+                    "task_name": task_name,
+                },
+            )
+
+    task.add_done_callback(_log_result)
 
 
 @dataclass
@@ -317,7 +324,10 @@ class SalesAgent(Agent):
         turn_ctx: ChatContext,
         new_message: ChatMessage,
     ) -> None:
-        self._inject_retrieval_context(turn_ctx, query=(new_message.text_content or "").strip())
+        await self._inject_retrieval_context(
+            turn_ctx,
+            query=(new_message.text_content or "").strip(),
+        )
 
     @function_tool()
     async def search_knowledge_base(
@@ -331,7 +341,7 @@ class SalesAgent(Agent):
             query: The user's question rewritten as a concise retrieval query.
         """
         del context
-        return self._search_knowledge_base(query)
+        return await self._search_knowledge_base(query)
 
     @function_tool()
     async def search_products(
@@ -350,7 +360,7 @@ class SalesAgent(Agent):
         Use this tool when the user asks for product models, technical parameters, prices, or comparisons.
         """
         del context
-        return self._search_products(
+        return await self._search_products(
             query=query,
             category=category,
             brand=brand,
@@ -363,24 +373,17 @@ class SalesAgent(Agent):
     def _resolve_search_kb_ids(self) -> list[str]:
         return list(self._agent_profile.knowledge_base_ids)
 
-    def _search_knowledge_base(self, query: str) -> str:
+    async def _search_knowledge_base(self, query: str) -> str:
         kb_ids = self._resolve_search_kb_ids()
         if not kb_ids:
             return "当前智能体没有绑定知识库。"
 
         try:
-            if len(kb_ids) == 1:
-                results = retrieval_service.search(
-                    kb_id=kb_ids[0],
-                    query=query,
-                    top_k=self._agent_profile.retrieval_top_k,
-                )
-            else:
-                results = retrieval_service.search_many(
-                    kb_ids=kb_ids,
-                    query=query,
-                    top_k=self._agent_profile.retrieval_top_k,
-                )
+            results = await kb_client.search_knowledge_base(
+                query=query,
+                knowledge_base_ids=kb_ids,
+                top_k=self._agent_profile.retrieval_top_k,
+            )
         except Exception as exc:
             return f"知识库检索失败：{exc}"
 
@@ -389,7 +392,7 @@ class SalesAgent(Agent):
 
         return self._format_search_results(results)
 
-    def _search_products(
+    async def _search_products(
         self,
         *,
         query: str,
@@ -401,7 +404,7 @@ class SalesAgent(Agent):
         limit: int,
     ) -> str:
         try:
-            products = knowledge_service.list_products(
+            products = await kb_client.search_products(
                 query=query,
                 category=category,
                 brand=brand,
@@ -418,25 +421,30 @@ class SalesAgent(Agent):
 
         parts: list[str] = []
         for index, product in enumerate(products, start=1):
-            primary_label = product.model or product.sku or product.name or "未命名商品"
+            primary_label = (
+                str(product.get("model") or "")
+                or str(product.get("sku") or "")
+                or str(product.get("name") or "")
+                or "未命名商品"
+            )
             lines = [
                 f"[{index}] {primary_label}",
-                f"名称：{product.name or '-'}",
-                f"分类：{product.category or '-'}",
-                f"品牌：{product.brand or '-'}",
-                f"型号：{product.model or '-'}",
-                f"货号：{product.sku or '-'}",
-                f"别名：{product.aliases or '-'}",
-                f"价格：{product.price or '-'}",
-                f"价格更新时间：{product.updated_at}",
-                f"状态：{product.status or '-'}",
+                f"名称：{product.get('name') or '-'}",
+                f"分类：{product.get('category') or '-'}",
+                f"品牌：{product.get('brand') or '-'}",
+                f"型号：{product.get('model') or '-'}",
+                f"货号：{product.get('sku') or '-'}",
+                f"别名：{product.get('aliases') or '-'}",
+                f"价格：{product.get('price') or '-'}",
+                f"价格更新时间：{product.get('updated_at') or '-'}",
+                f"状态：{product.get('status') or '-'}",
             ]
-            if product.summary:
-                lines.append(f"简介：{product.summary}")
-            if product.tags:
-                lines.append(f"标签：{product.tags}")
-            if product.attributes:
-                lines.append(f"扩展属性：{product.attributes}")
+            if product.get("summary"):
+                lines.append(f"简介：{product.get('summary')}")
+            if product.get("tags"):
+                lines.append(f"标签：{product.get('tags')}")
+            if product.get("attributes"):
+                lines.append(f"扩展属性：{product.get('attributes')}")
             parts.append("\n".join(lines))
         return "\n\n".join(parts)
 
@@ -449,30 +457,23 @@ class SalesAgent(Agent):
             f"{self._format_search_results(results)}"
         )
 
-    def build_turn_chat_context(self, query: str) -> ChatContext:
+    async def build_turn_chat_context(self, query: str) -> ChatContext:
         turn_ctx = self.chat_ctx.copy()
-        self._inject_retrieval_context(turn_ctx, query=query)
+        await self._inject_retrieval_context(turn_ctx, query=query)
         return turn_ctx
 
-    def _inject_retrieval_context(self, turn_ctx: ChatContext, *, query: str) -> None:
+    async def _inject_retrieval_context(self, turn_ctx: ChatContext, *, query: str) -> None:
         kb_ids = self._resolve_search_kb_ids()
         query = query.strip()
         if not kb_ids or not query:
             return
 
         try:
-            if len(kb_ids) == 1:
-                results = retrieval_service.search(
-                    kb_id=kb_ids[0],
-                    query=query,
-                    top_k=self._agent_profile.retrieval_top_k,
-                )
-            else:
-                results = retrieval_service.search_many(
-                    kb_ids=kb_ids,
-                    query=query,
-                    top_k=self._agent_profile.retrieval_top_k,
-                )
+            results = await kb_client.search_knowledge_base(
+                query=query,
+                knowledge_base_ids=kb_ids,
+                top_k=self._agent_profile.retrieval_top_k,
+            )
         except Exception as exc:
             logger.exception(
                 "knowledge retrieval failed",
@@ -538,35 +539,52 @@ class SalesAgent(Agent):
         if not conversation_id:
             return
 
-        history = conversation_service.build_chat_context(conversation_id)
+        messages = await kb_client.list_conversation_messages(conversation_id)
+        history = ChatContext.empty()
+        for message in messages:
+            content = str(message.get("content") or "").strip()
+            role = str(message.get("role") or "").strip()
+            if not content:
+                continue
+            if role not in {"user", "assistant", "system", "developer"}:
+                continue
+            history.add_message(
+                role="system" if role == "developer" else role,
+                content=content,
+            )
         if not history.items:
             return
 
         await self.update_chat_ctx(history)
 
 
-def build_session(
+async def build_session(
     proc: JobProcess,
     metadata: SessionMetadata,
     agent_profile: AgentProfileSettings,
 ) -> tuple[AgentSession, object | None, object | None]:
     settings.validate()
-    db_path = settings.kb_data_dir / "app.db"
-    stt_profile = None if metadata.is_text_mode else load_stt_model_settings(db_path)
-    tts_profile = None if metadata.is_text_mode else load_tts_model_settings(db_path)
+    stt_profile = (
+        None
+        if metadata.is_text_mode
+        else await kb_client.load_stt_model_settings()
+    )
+    tts_profile = (
+        None
+        if metadata.is_text_mode
+        else await kb_client.load_tts_model_settings()
+    )
     stt_fallback_profiles = (
         []
         if metadata.is_text_mode
-        else load_stt_fallback_model_settings(
-            db_path,
+        else await kb_client.load_stt_fallback_model_settings(
             profile_ids=settings.stt_fallback_profile_ids,
         )
     )
     tts_fallback_profiles = (
         []
         if metadata.is_text_mode
-        else load_tts_fallback_model_settings(
-            db_path,
+        else await kb_client.load_tts_fallback_model_settings(
             profile_ids=settings.tts_fallback_profile_ids,
         )
     )
@@ -627,7 +645,7 @@ async def handle_text_input(
     )
 
     await session.interrupt()
-    turn_ctx = agent.build_turn_chat_context(query)
+    turn_ctx = await agent.build_turn_chat_context(query)
     session.generate_reply(
         user_input=query,
         chat_ctx=turn_ctx,
@@ -722,19 +740,18 @@ def _resolve_conversation_end_state(
 async def entrypoint(ctx: JobContext) -> None:
     raw_metadata = _extract_agent_metadata(ctx)
     metadata = parse_session_metadata(ctx)
-    resolved_agent_profile = load_agent_profile_settings(
-        settings.kb_data_dir / "app.db",
+    resolved_agent_profile = await kb_client.load_agent_profile_settings(
         agent_profile_id=metadata.agent_profile_id,
         default_retrieval_top_k=settings.kb_top_k,
     )
     metadata.agent_profile_id = resolved_agent_profile.profile_id
-    ensured_conversation = conversation_service.ensure_conversation(
+    ensured_conversation = await kb_client.ensure_conversation(
         metadata.conversation_id,
         knowledge_base_id=None,
         agent_profile_id=metadata.agent_profile_id,
         last_mode=metadata.session_mode,
     )
-    metadata.conversation_id = ensured_conversation.id
+    metadata.conversation_id = str(ensured_conversation.get("id") or "") or None
     job_metadata = getattr(getattr(ctx, "job", None), "metadata", None)
     logger.info(
         "starting agent session",
@@ -747,7 +764,11 @@ async def entrypoint(ctx: JobContext) -> None:
             "job_metadata": job_metadata,
         },
     )
-    session, stt_impl, tts_impl = build_session(ctx.proc, metadata, resolved_agent_profile)
+    session, stt_impl, tts_impl = await build_session(
+        ctx.proc,
+        metadata,
+        resolved_agent_profile,
+    )
     has_stt = stt_impl is not None
     has_tts = tts_impl is not None
     agent = SalesAgent(settings, metadata, resolved_agent_profile, has_tts=has_tts)
@@ -815,12 +836,16 @@ async def entrypoint(ctx: JobContext) -> None:
             idle_controller.on_user_speaking(reset_away_count=True, update_state=False)
         if not metadata.conversation_id:
             return
-        conversation_service.append_message(
+        _schedule_background_task(
+            kb_client.append_message(
+                metadata.conversation_id,
+                role=item.role,
+                content=content,
+                source_mode=metadata.session_mode,
+                external_message_id=item.id,
+            ),
+            task_name=f"append-message-{metadata.conversation_id}",
             conversation_id=metadata.conversation_id,
-            role=item.role,
-            content=content,
-            source_mode=metadata.session_mode,
-            external_message_id=item.id,
         )
 
     @session.on("close")
@@ -834,10 +859,14 @@ async def entrypoint(ctx: JobContext) -> None:
             closed_by_idle=idle_controller.closed_by_idle,
         )
         if metadata.conversation_id:
-            conversation_service.end_conversation(
-                metadata.conversation_id,
-                reason=end_reason,
-                detail=end_detail,
+            _schedule_background_task(
+                kb_client.end_conversation(
+                    metadata.conversation_id,
+                    reason=end_reason,
+                    detail=end_detail,
+                ),
+                task_name=f"end-conversation-{metadata.conversation_id}",
+                conversation_id=metadata.conversation_id,
             )
         logger.info(
             "agent session closed",

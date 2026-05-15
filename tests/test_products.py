@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from livekit_sales_agent.knowledge.db import connect, ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository  # noqa: E402
+from livekit_sales_agent.products import ProductService  # noqa: E402
 
 
 class ProductCatalogTest(unittest.TestCase):
@@ -95,6 +96,54 @@ class ProductCatalogTest(unittest.TestCase):
             self.assertEqual(len(remaining), 1)
             self.assertEqual(remaining[0].id, first.id)
             conn.close()
+
+    def test_product_service_applies_defaults_and_duplicate_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            db_path = root / "app.db"
+            ensure_database(db_path)
+            service = ProductService(db_path=db_path)
+
+            created = service.create_product(
+                name="  Pixel 9  ",
+                category=" 手机 ",
+                brand=" Google ",
+                model=" PX9 ",
+                sku="",
+                aliases=" Pixel 旗舰 ",
+                price=" 5999 元 ",
+                currency="",
+                status="",
+                summary=" 旗舰机型 ",
+                tags=" Android,Google ",
+                attributes=" color: black ",
+            )
+            self.assertEqual(created.name, "Pixel 9")
+            self.assertEqual(created.category, "手机")
+            self.assertEqual(created.brand, "Google")
+            self.assertEqual(created.model, "PX9")
+            self.assertEqual(created.currency, "CNY")
+            self.assertEqual(created.status, "active")
+
+            with self.assertRaisesRegex(ValueError, "产品型号不能重复"):
+                service.create_product(
+                    name="Pixel 9 Pro",
+                    category="手机",
+                    brand="Google",
+                    model="PX9",
+                    sku="PX9-PRO",
+                    aliases="",
+                    price="6999 元",
+                    currency="CNY",
+                    status="active",
+                    summary="",
+                    tags="",
+                    attributes="",
+                )
+
+            results = service.list_products(query="pixel")
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].id, created.id)
 
 
 if __name__ == "__main__":

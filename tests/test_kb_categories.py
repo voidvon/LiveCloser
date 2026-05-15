@@ -12,6 +12,17 @@ from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.db import connect  # noqa: E402
 from livekit_sales_agent.knowledge.repositories import KnowledgeBaseRepository  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
+from livekit_sales_agent.profiles import ProfileService  # noqa: E402
+
+
+def _create_embedding_profile(db_path: Path):
+    return ProfileService(db_path=db_path).create_embedding_profile(
+        name="embedding",
+        provider="openai_compatible",
+        model="text-embedding-3-small",
+        base_url="https://api.openai.com/v1",
+        api_key_env="OPENAI_API_KEY",
+    )
 
 
 class KnowledgeBaseCategoryTest(unittest.TestCase):
@@ -26,13 +37,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
                 chroma_root=root / "chroma",
             )
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb_one = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -93,13 +98,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             )
             service._job_runner.start_embed_job = lambda **_: None
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb_one = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -153,13 +152,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             queued_jobs: list[str] = []
             service._job_runner.start_embed_job = lambda **kwargs: queued_jobs.append(kwargs["job_id"])
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -226,13 +219,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             queued_jobs: list[str] = []
             service._job_runner.start_embed_job = lambda **kwargs: queued_jobs.append(kwargs["job_id"])
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -293,13 +280,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             )
             service._job_runner.start_embed_job = lambda **_: None
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb_one = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -360,13 +341,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             deleted_vector_payloads: list[dict[str, str]] = []
             service._chroma_store.delete_file_chunks = lambda **kwargs: deleted_vector_payloads.append(kwargs)
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -436,13 +411,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
             )
             service._job_runner.start_embed_job = lambda **_: None
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb = service.create_knowledge_base(
                 name="产品资料",
                 description="",
@@ -478,13 +447,7 @@ class KnowledgeBaseCategoryTest(unittest.TestCase):
                 chroma_root=root / "chroma",
             )
 
-            embedding = service.create_embedding_profile(
-                name="embedding",
-                provider="openai_compatible",
-                model="text-embedding-3-small",
-                base_url="https://api.openai.com/v1",
-                api_key_env="OPENAI_API_KEY",
-            )
+            embedding = _create_embedding_profile(db_path)
             kb = service.create_knowledge_base(
                 name="产品资料",
                 description="",

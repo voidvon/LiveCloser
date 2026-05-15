@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from livekit_sales_agent.conversation import ConversationService  # noqa: E402
 from livekit_sales_agent.knowledge.db import ensure_database  # noqa: E402
 from livekit_sales_agent.knowledge.service import KnowledgeService  # noqa: E402
+from livekit_sales_agent.profiles import ProfileService  # noqa: E402
 
 
 class ConversationContextTest(unittest.TestCase):
@@ -99,8 +100,9 @@ class ConversationContextTest(unittest.TestCase):
                 chroma_root=root / "chroma",
             )
             conversation_service = ConversationService(db_path=db_path)
+            profile_service = ProfileService(db_path=db_path)
 
-            chat_model = knowledge_service.create_chat_model_profile(
+            chat_model = profile_service.create_chat_model_profile(
                 name="default-model",
                 provider="openai_compatible",
                 model="gpt-4.1-mini",
@@ -108,7 +110,7 @@ class ConversationContextTest(unittest.TestCase):
                 api_key="test-key",
                 is_default=True,
             )
-            agent = knowledge_service.create_agent_profile(
+            agent = profile_service.create_agent_profile(
                 name="默认顾问",
                 description="",
                 opening_message="你好，我是默认顾问。",
