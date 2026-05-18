@@ -78,6 +78,107 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS product_spec_dimensions (
+        id TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        label TEXT NOT NULL,
+        value_type TEXT NOT NULL DEFAULT 'enum',
+        unit TEXT NOT NULL DEFAULT '',
+        is_required INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        UNIQUE (product_id, key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_spec_dimension_options (
+        id TEXT PRIMARY KEY,
+        dimension_id TEXT NOT NULL,
+        option_key TEXT NOT NULL,
+        option_label TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (dimension_id) REFERENCES product_spec_dimensions(id) ON DELETE CASCADE,
+        UNIQUE (dimension_id, option_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_variants (
+        id TEXT PRIMARY KEY,
+        product_id TEXT NOT NULL,
+        sku TEXT NOT NULL,
+        variant_name TEXT NOT NULL DEFAULT '',
+        spec_signature TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        barcode TEXT NOT NULL DEFAULT '',
+        weight REAL,
+        lead_time_days INTEGER,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        UNIQUE (sku),
+        UNIQUE (product_id, spec_signature)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_variant_spec_values (
+        id TEXT PRIMARY KEY,
+        variant_id TEXT NOT NULL,
+        dimension_id TEXT NOT NULL,
+        option_id TEXT,
+        value_text TEXT NOT NULL DEFAULT '',
+        value_number REAL,
+        value_display TEXT NOT NULL DEFAULT '',
+        sort_value REAL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+        FOREIGN KEY (dimension_id) REFERENCES product_spec_dimensions(id) ON DELETE CASCADE,
+        FOREIGN KEY (option_id) REFERENCES product_spec_dimension_options(id) ON DELETE SET NULL,
+        UNIQUE (variant_id, dimension_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS price_books (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'CNY',
+        audience_type TEXT NOT NULL DEFAULT 'retail',
+        priority INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (code)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_variant_prices (
+        id TEXT PRIMARY KEY,
+        variant_id TEXT NOT NULL,
+        price_book_id TEXT NOT NULL,
+        pricing_mode TEXT NOT NULL DEFAULT 'fixed',
+        amount_minor INTEGER,
+        min_amount_minor INTEGER,
+        max_amount_minor INTEGER,
+        min_qty INTEGER NOT NULL DEFAULT 1,
+        effective_from TEXT,
+        effective_to TEXT,
+        tax_included INTEGER NOT NULL DEFAULT 1,
+        remarks TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+        FOREIGN KEY (price_book_id) REFERENCES price_books(id) ON DELETE CASCADE
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS stt_model_profiles (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -254,6 +355,15 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)",
     "CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)",
     "CREATE INDEX IF NOT EXISTS idx_products_updated_at ON products(updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_product_spec_dimensions_product_id ON product_spec_dimensions(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_spec_dimension_options_dimension_id ON product_spec_dimension_options(dimension_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variants_status ON product_variants(status)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variant_spec_values_variant_id ON product_variant_spec_values(variant_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variant_spec_values_dimension_id ON product_variant_spec_values(dimension_id)",
+    "CREATE INDEX IF NOT EXISTS idx_price_books_status_priority ON price_books(status, priority)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variant_prices_variant_id ON product_variant_prices(variant_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_variant_prices_price_book_id ON product_variant_prices(price_book_id)",
     "CREATE INDEX IF NOT EXISTS idx_stt_model_profiles_updated_at ON stt_model_profiles(updated_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_stt_model_profiles_single_default ON stt_model_profiles(is_default) WHERE is_default = 1",
     "CREATE INDEX IF NOT EXISTS idx_tts_model_profiles_updated_at ON tts_model_profiles(updated_at)",

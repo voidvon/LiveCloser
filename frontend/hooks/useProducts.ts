@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { deleteJson, getJson, patchJson, postJson } from '@/lib/api';
-import type { Product, ProductPayload } from '@/types';
+import type { ProductCatalog, ProductCatalogPayload, ProductListItem } from '@/types';
 
 export type ProductFilters = {
   query: string;
@@ -34,7 +34,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FILTERS) {
   const lastFiltersRef = useRef(initialFilters);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +43,7 @@ export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FIL
     try {
       setLoading(true);
       setError(null);
-      const data = await getJson<Product[]>(buildProductsUrl(filters));
+      const data = await getJson<ProductListItem[]>(buildProductsUrl(filters));
       setProducts(data);
       return data;
     } catch (error: unknown) {
@@ -54,14 +54,25 @@ export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FIL
     }
   }, []);
 
+  const getCatalog = useCallback(async (productId: string) => {
+    try {
+      setError(null);
+      return await getJson<ProductCatalog>(`/api/kb/products/${productId}/catalog-view`);
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, '加载商品目录失败'));
+      throw error;
+    }
+  }, []);
+
   const create = useCallback(
-    async (payload: ProductPayload) => {
+    async (payload: ProductCatalogPayload) => {
       try {
         setError(null);
-        await postJson<Product>('/api/kb/products', payload);
-        return await refresh();
+        const data = await postJson<ProductCatalog>('/api/kb/products', payload);
+        await refresh();
+        return data;
       } catch (error: unknown) {
-        setError(getErrorMessage(error, '保存产品失败'));
+        setError(getErrorMessage(error, '保存商品失败'));
         throw error;
       }
     },
@@ -69,13 +80,14 @@ export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FIL
   );
 
   const update = useCallback(
-    async (productId: string, payload: ProductPayload) => {
+    async (productId: string, payload: ProductCatalogPayload) => {
       try {
         setError(null);
-        await patchJson<Product>(`/api/kb/products/${productId}`, payload);
-        return await refresh();
+        const data = await patchJson<ProductCatalog>(`/api/kb/products/${productId}`, payload);
+        await refresh();
+        return data;
       } catch (error: unknown) {
-        setError(getErrorMessage(error, '保存产品失败'));
+        setError(getErrorMessage(error, '保存商品失败'));
         throw error;
       }
     },
@@ -89,7 +101,7 @@ export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FIL
         await deleteJson(`/api/kb/products/${productId}`);
         return await refresh();
       } catch (error: unknown) {
-        setError(getErrorMessage(error, '删除产品失败'));
+        setError(getErrorMessage(error, '删除商品失败'));
         throw error;
       }
     },
@@ -109,6 +121,7 @@ export function useProducts(initialFilters: ProductFilters = DEFAULT_PRODUCT_FIL
     loading,
     error,
     refresh,
+    getCatalog,
     create,
     update,
     remove,

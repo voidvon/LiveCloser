@@ -370,6 +370,34 @@ class SalesAgent(Agent):
             limit=limit,
         )
 
+    @function_tool()
+    async def resolve_product_price(
+        self,
+        context: RunContext,
+        product_id: str,
+        specs: str = "",
+        price_book_code: str = "standard",
+        quantity: int = 1,
+        effective_at: str = "",
+    ) -> str:
+        """Resolve the exact price for one product variant by passing full spec conditions.
+
+        Args:
+            product_id: The product ID returned by `search_products`.
+            specs: Spec conditions in `key=value,key=value` format, for example `diameter=DN80,pressure=PN16`.
+            price_book_code: Price book code, default is `standard`.
+            quantity: Quantity for tier pricing.
+            effective_at: Optional ISO datetime used to match effective price windows.
+        """
+        del context
+        return await self._resolve_product_price(
+            product_id=product_id,
+            specs=specs,
+            price_book_code=price_book_code,
+            quantity=quantity,
+            effective_at=effective_at,
+        )
+
     def _resolve_search_kb_ids(self) -> list[str]:
         return list(self._agent_profile.knowledge_base_ids)
 
@@ -423,30 +451,120 @@ class SalesAgent(Agent):
         for index, product in enumerate(products, start=1):
             primary_label = (
                 str(product.get("model") or "")
-                or str(product.get("sku") or "")
                 or str(product.get("name") or "")
                 or "未命名商品"
             )
+            min_price_minor = product.get("min_price_minor")
+            max_price_minor = product.get("max_price_minor")
             lines = [
                 f"[{index}] {primary_label}",
+                f"商品ID：{product.get('id') or '-'}",
                 f"名称：{product.get('name') or '-'}",
                 f"分类：{product.get('category') or '-'}",
                 f"品牌：{product.get('brand') or '-'}",
                 f"型号：{product.get('model') or '-'}",
-                f"货号：{product.get('sku') or '-'}",
-                f"别名：{product.get('aliases') or '-'}",
-                f"价格：{product.get('price') or '-'}",
-                f"价格更新时间：{product.get('updated_at') or '-'}",
                 f"状态：{product.get('status') or '-'}",
+                f"变体数：{product.get('variant_count') or 0}",
+                f"启用变体数：{product.get('active_variant_count') or 0}",
+                f"标准价范围：{self._format_price_range(min_price_minor, max_price_minor, str(product.get('currency') or 'CNY'))}",
+                f"更新时间：{product.get('updated_at') or '-'}",
             ]
-            if product.get("summary"):
-                lines.append(f"简介：{product.get('summary')}")
-            if product.get("tags"):
-                lines.append(f"标签：{product.get('tags')}")
-            if product.get("attributes"):
-                lines.append(f"扩展属性：{product.get('attributes')}")
             parts.append("\n".join(lines))
         return "\n\n".join(parts)
+
+    async def _resolve_product_price(
+        self,
+        *,
+        product_id: str,
+        specs: str,
+        price_book_code: str,
+        quantity: int,
+        effective_at: str,
+    ) -> str:
+        try:
+            result = await kb_client.resolve_product_price(
+                product_id,
+                price_book_code=price_book_code,
+                quantity=max(1, quantity),
+                effective_at=effective_at.strip() or None,
+                specs=self._parse_specs(specs),
+            )
+        except Exception as exc:
+            return f"产品定价查询失败：{exc}"
+
+        if not result:
+            return "没有查询到对应的商品。"
+
+        if not result.get("matched"):
+            reason = str(result.get("reason") or "")
+            if reason == "missing_specs":
+                missing = "、".join(result.get("missing_dimensions") or []) or "规格条件"
+                return f"缺少必要规格条件：{missing}。"
+            if reason == "ambiguous_variant":
+                return "当前规格条件仍然不够，命中了多个变体，请补充更多规格。"
+            if reason == "variant_not_found":
+                return "没有找到匹配该规格组合的变体。"
+            if reason == "price_not_found":
+                return "找到了对应变体，但没有匹配到有效价格。"
+            return "没有匹配到可用价格。"
+
+        price = dict(result.get("price") or {})
+        specs_map = dict(result.get("specs") or {})
+        spec_lines = [f"{key}={value}" for key, value in specs_map.items()]
+        return "\n".join(
+            [
+                f"商品：{result.get('product_name') or '-'}",
+                f"商品ID：{result.get('product_id') or '-'}",
+                f"变体：{result.get('variant_name') or result.get('sku') or '-'}",
+                f"SKU：{result.get('sku') or '-'}",
+                f"规格：{'，'.join(spec_lines) if spec_lines else '-'}",
+                f"价格：{self._format_resolved_price(price)}",
+            ]
+        )
+
+    @staticmethod
+    def _parse_specs(specs: str) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for item in specs.split(","):
+            chunk = item.strip()
+            if not chunk or "=" not in chunk:
+                continue
+            key, value = chunk.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key and value:
+                result[key] = value
+        return result
+
+    @staticmethod
+    def _format_minor(amount_minor: object, currency: str) -> str:
+        if amount_minor is None:
+            return "-"
+        amount = int(amount_minor) / 100
+        return f"{currency} {amount:.2f}"
+
+    def _format_price_range(self, min_price_minor: object, max_price_minor: object, currency: str) -> str:
+        if min_price_minor is None and max_price_minor is None:
+            return "-"
+        if min_price_minor == max_price_minor:
+            return self._format_minor(min_price_minor, currency)
+        return (
+            f"{self._format_minor(min_price_minor, currency)} ~ "
+            f"{self._format_minor(max_price_minor, currency)}"
+        )
+
+    def _format_resolved_price(self, price: dict[str, object]) -> str:
+        currency = str(price.get("currency") or "CNY")
+        pricing_mode = str(price.get("pricing_mode") or "fixed")
+        if pricing_mode == "quote":
+            return str(price.get("remarks") or "需报价")
+        if pricing_mode == "range":
+            return self._format_price_range(
+                price.get("min_amount_minor"),
+                price.get("max_amount_minor"),
+                currency,
+            )
+        return self._format_minor(price.get("amount_minor"), currency)
 
     def _build_rag_context(self, *, query: str, results: list[dict[str, object]]) -> str:
         return (

@@ -18,19 +18,79 @@ class KnowledgeBasePayload(BaseModel):
     retrieval_top_k: int = 5
 
 
-class ProductPayload(BaseModel):
+class ProductBasePayload(BaseModel):
     name: str = ""
     category: str = ""
     brand: str = ""
     model: str = Field(default="", max_length=120)
-    sku: str = ""
     aliases: str = ""
-    price: str = ""
-    currency: str = "CNY"
     status: str = "active"
     summary: str = ""
     tags: str = ""
     attributes: str = ""
+
+
+class SpecDimensionOptionPayload(BaseModel):
+    option_key: str = Field(min_length=1, max_length=120)
+    option_label: str = Field(min_length=1, max_length=120)
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class SpecDimensionPayload(BaseModel):
+    key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120)
+    value_type: str = "enum"
+    unit: str = ""
+    is_required: bool = True
+    sort_order: int = 0
+    options: list[SpecDimensionOptionPayload] = Field(default_factory=list)
+
+
+class VariantSpecValuePayload(BaseModel):
+    dimension_key: str = Field(min_length=1, max_length=120)
+    option_key: Optional[str] = None
+    value_text: str = ""
+    value_number: Optional[float] = None
+    value_display: str = ""
+
+
+class VariantPayload(BaseModel):
+    sku: str = Field(min_length=1, max_length=120)
+    variant_name: str = ""
+    status: str = "active"
+    barcode: str = ""
+    weight: Optional[float] = None
+    lead_time_days: Optional[int] = None
+    is_default: bool = False
+    specs: list[VariantSpecValuePayload] = Field(default_factory=list)
+
+
+class VariantPricePayload(BaseModel):
+    price_book_code: str = "standard"
+    pricing_mode: str = "fixed"
+    amount_minor: Optional[int] = None
+    min_amount_minor: Optional[int] = None
+    max_amount_minor: Optional[int] = None
+    min_qty: int = 1
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
+    tax_included: bool = True
+    remarks: str = ""
+
+
+class ProductCatalogPayload(BaseModel):
+    product: ProductBasePayload
+    dimensions: list[SpecDimensionPayload] = Field(default_factory=list)
+    variants: list[VariantPayload] = Field(default_factory=list)
+    prices: dict[str, list[VariantPricePayload]] = Field(default_factory=dict)
+
+
+class ResolveProductPricePayload(BaseModel):
+    price_book_code: str = "standard"
+    quantity: int = 1
+    effective_at: Optional[str] = None
+    specs: dict[str, str] = Field(default_factory=dict)
 
 
 class CategoryPayload(BaseModel):

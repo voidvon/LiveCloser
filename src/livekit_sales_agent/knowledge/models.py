@@ -28,16 +28,133 @@ class ProductRecord:
     category: str
     brand: str
     model: str
-    sku: str
     aliases: str
-    price: str
-    currency: str
     status: str
     summary: str
     tags: str
     attributes: str
     created_at: str
     updated_at: str
+
+
+@dataclass
+class ProductListItemRecord:
+    id: str
+    name: str
+    category: str
+    brand: str
+    model: str
+    status: str
+    variant_count: int
+    active_variant_count: int
+    min_price_minor: int | None
+    max_price_minor: int | None
+    currency: str
+    updated_at: str
+
+
+@dataclass
+class ProductSpecDimensionOptionRecord:
+    id: str
+    dimension_id: str
+    option_key: str
+    option_label: str
+    sort_order: int
+    is_active: int
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class ProductSpecDimensionRecord:
+    id: str
+    product_id: str
+    key: str
+    label: str
+    value_type: str
+    unit: str
+    is_required: int
+    sort_order: int
+    created_at: str
+    updated_at: str
+    options: list[ProductSpecDimensionOptionRecord] | None = None
+
+
+@dataclass
+class PriceBookRecord:
+    id: str
+    code: str
+    name: str
+    currency: str
+    audience_type: str
+    priority: int
+    status: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class ProductVariantSpecValueRecord:
+    id: str
+    variant_id: str
+    dimension_id: str
+    dimension_key: str
+    dimension_label: str
+    option_id: str | None
+    option_key: str | None
+    value_text: str
+    value_number: float | None
+    value_display: str
+    sort_value: float | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class ProductVariantPriceRecord:
+    id: str
+    variant_id: str
+    price_book_id: str
+    price_book_code: str
+    price_book_name: str
+    currency: str
+    pricing_mode: str
+    amount_minor: int | None
+    min_amount_minor: int | None
+    max_amount_minor: int | None
+    min_qty: int
+    effective_from: str | None
+    effective_to: str | None
+    tax_included: int
+    remarks: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class ProductVariantRecord:
+    id: str
+    product_id: str
+    sku: str
+    variant_name: str
+    spec_signature: str
+    status: str
+    barcode: str
+    weight: float | None
+    lead_time_days: int | None
+    is_default: int
+    created_at: str
+    updated_at: str
+    specs: list[ProductVariantSpecValueRecord] | None = None
+    prices: list[ProductVariantPriceRecord] | None = None
+
+
+@dataclass
+class ProductCatalogRecord:
+    product: ProductRecord
+    dimensions: list[ProductSpecDimensionRecord]
+    variants: list[ProductVariantRecord]
+    price_books: list[PriceBookRecord]
 
 
 @dataclass

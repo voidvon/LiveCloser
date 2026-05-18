@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Pencil, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, Pencil, Plus, RefreshCcw, Search, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -23,36 +24,54 @@ import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
 import { DEFAULT_PRODUCT_FILTERS, type ProductFilters, useProducts } from '@/hooks/useProducts';
 import { cn } from '@/lib/shadcn/utils';
-import type { Product, ProductPayload } from '@/types';
+import type { ProductCatalog, ProductCatalogPayload } from '@/types';
 
-type ProductFormState = {
-  name: string;
-  category: string;
-  brand: string;
-  model: string;
-  sku: string;
-  aliases: string;
-  price: string;
-  currency: string;
-  status: string;
-  summary: string;
-  tags: string;
-  attributes: string;
+type VariantCondition = {
+  dimension: string;
+  value: string;
 };
 
-const DEFAULT_FORM: ProductFormState = {
+type VariantRow = {
+  sku: string;
+  variant_name: string;
+  status: string;
+  price_yuan: string;
+  conditions: VariantCondition[];
+};
+
+type ProductFormState = {
+  product: ProductCatalogPayload['product'];
+  variants: VariantRow[];
+};
+
+const DEFAULT_PRODUCT = {
   name: '',
   category: '',
   brand: '',
   model: '',
-  sku: '',
   aliases: '',
-  price: '',
-  currency: 'CNY',
   status: 'active',
   summary: '',
   tags: '',
   attributes: '',
+};
+
+const EMPTY_CONDITION: VariantCondition = {
+  dimension: '',
+  value: '',
+};
+
+const DEFAULT_VARIANT: VariantRow = {
+  sku: '',
+  variant_name: '',
+  status: 'active',
+  price_yuan: '',
+  conditions: [{ ...EMPTY_CONDITION }],
+};
+
+const DEFAULT_FORM: ProductFormState = {
+  product: DEFAULT_PRODUCT,
+  variants: [{ ...DEFAULT_VARIANT }],
 };
 
 function formatDateTime(value: string) {
@@ -67,6 +86,235 @@ function formatDateTime(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatMoney(minor: number | null | undefined, currency = 'CNY') {
+  if (minor == null) {
+    return '-';
+  }
+  return `${currency} ${(minor / 100).toFixed(2)}`;
+}
+
+function formatPriceRange(
+  minPriceMinor: number | null,
+  maxPriceMinor: number | null,
+  currency: string
+) {
+  if (minPriceMinor == null && maxPriceMinor == null) {
+    return '-';
+  }
+  if (minPriceMinor === maxPriceMinor) {
+    return formatMoney(minPriceMinor, currency);
+  }
+  return `${formatMoney(minPriceMinor, currency)} ~ ${formatMoney(maxPriceMinor, currency)}`;
+}
+
+function formatMinorToYuanInput(minor: number | null | undefined) {
+  if (minor == null) {
+    return '';
+  }
+  const amount = minor / 100;
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+function parseYuanToMinor(value: string) {
+  const amount = Number(value.trim());
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+  return Math.round(amount * 100);
+}
+
+function normalizeLabel(value: string) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function buildDimensionKey(label: string) {
+  return normalizeLabel(label);
+}
+
+function buildFallbackSku(base: string, index: number) {
+  const cleaned = base
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9\u4E00-\u9FFF]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${cleaned || 'ITEM'}-${index + 1}`;
+}
+
+function normalizeCatalogToForm(catalog: ProductCatalog): ProductFormState {
+  const dimensions = catalog.dimensions.map((dimension) => ({
+    key: dimension.key,
+    label: dimension.label,
+  }));
+
+  return {
+    product: {
+      name: catalog.product.name,
+      category: catalog.product.category,
+      brand: catalog.product.brand,
+      model: catalog.product.model,
+      aliases: catalog.product.aliases,
+      status: catalog.product.status,
+      summary: catalog.product.summary,
+      tags: catalog.product.tags,
+      attributes: catalog.product.attributes,
+    },
+    variants:
+      catalog.variants.map((variant) => {
+        const standardPrice = (variant.prices || []).find(
+          (price) => price.price_book_code === 'standard'
+        );
+        const amountMinor =
+          standardPrice?.amount_minor ??
+          standardPrice?.min_amount_minor ??
+          standardPrice?.max_amount_minor ??
+          null;
+        const conditions = dimensions.map((dimension) => {
+          const spec = (variant.specs || []).find(
+            (item) => item.dimension_key === dimension.key
+          );
+          return {
+            dimension: dimension.label,
+            value: spec?.value_display || spec?.value_text || spec?.option_key || '',
+          };
+        });
+
+        return {
+          sku: variant.sku,
+          variant_name: variant.variant_name,
+          status: variant.status,
+          price_yuan: formatMinorToYuanInput(amountMinor),
+          conditions: conditions.length ? conditions : [{ ...EMPTY_CONDITION }],
+        };
+      }) || [{ ...DEFAULT_VARIANT }],
+  };
+}
+
+function collectDimensionLabels(variants: VariantRow[]) {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const variant of variants) {
+    for (const condition of variant.conditions) {
+      const label = normalizeLabel(condition.dimension);
+      if (!label || seen.has(label)) {
+        continue;
+      }
+      seen.add(label);
+      labels.push(label);
+    }
+  }
+  return labels;
+}
+
+function collectValueSuggestions(variants: VariantRow[]) {
+  const valuesByDimension = new Map<string, string[]>();
+  const seenByDimension = new Map<string, Set<string>>();
+
+  for (const variant of variants) {
+    for (const condition of variant.conditions) {
+      const dimension = normalizeLabel(condition.dimension);
+      const value = normalizeLabel(condition.value);
+      if (!dimension || !value) {
+        continue;
+      }
+      const seen = seenByDimension.get(dimension) ?? new Set<string>();
+      const values = valuesByDimension.get(dimension) ?? [];
+      if (!seen.has(value)) {
+        seen.add(value);
+        values.push(value);
+      }
+      seenByDimension.set(dimension, seen);
+      valuesByDimension.set(dimension, values);
+    }
+  }
+
+  return valuesByDimension;
+}
+
+function buildVariantName(conditions: VariantCondition[]) {
+  return conditions
+    .map((condition) => normalizeLabel(condition.value))
+    .filter(Boolean)
+    .join(' / ');
+}
+
+function buildPayload(form: ProductFormState): ProductCatalogPayload {
+  const dimensionLabels = collectDimensionLabels(form.variants);
+  const dimensions = dimensionLabels.map((label, index) => ({
+    key: buildDimensionKey(label),
+    label,
+    value_type: 'text' as const,
+    unit: '',
+    is_required: true,
+    sort_order: index,
+    options: [],
+  }));
+  const keyByLabel = new Map(dimensions.map((dimension) => [dimension.label, dimension.key]));
+  const skuBase = form.product.model.trim() || form.product.name.trim() || 'ITEM';
+
+  const variants = form.variants.map((variant, index) => {
+    const normalizedConditions = variant.conditions
+      .map((condition) => ({
+        dimension: normalizeLabel(condition.dimension),
+        value: normalizeLabel(condition.value),
+      }))
+      .filter((condition) => condition.dimension && condition.value);
+
+    const sku = variant.sku.trim() || buildFallbackSku(skuBase, index);
+    const variantName = variant.variant_name.trim() || buildVariantName(normalizedConditions) || sku;
+
+    return {
+      sku,
+      variant_name: variantName,
+      status: variant.status,
+      barcode: '',
+      weight: null,
+      lead_time_days: null,
+      is_default: index === 0,
+      specs: normalizedConditions.map((condition) => ({
+        dimension_key: keyByLabel.get(condition.dimension) || buildDimensionKey(condition.dimension),
+        value_text: condition.value,
+        value_number: null,
+        value_display: condition.value,
+      })),
+    };
+  });
+
+  return {
+    product: {
+      name: form.product.name.trim(),
+      category: form.product.category.trim(),
+      brand: form.product.brand.trim(),
+      model: form.product.model.trim(),
+      aliases: form.product.aliases.trim(),
+      status: form.product.status,
+      summary: form.product.summary.trim(),
+      tags: form.product.tags.trim(),
+      attributes: form.product.attributes.trim(),
+    },
+    dimensions,
+    variants,
+    prices: Object.fromEntries(
+      variants.map((variant, index) => [
+        variant.sku,
+        [
+          {
+            price_book_code: 'standard',
+            pricing_mode: 'fixed',
+            amount_minor: parseYuanToMinor(form.variants[index]?.price_yuan || ''),
+            min_amount_minor: null,
+            max_amount_minor: null,
+            min_qty: 1,
+            effective_from: null,
+            effective_to: null,
+            tax_included: true,
+            remarks: '',
+          },
+        ],
+      ])
+    ),
+  };
 }
 
 function statusLabel(status: string) {
@@ -95,28 +343,139 @@ function statusBadgeClass(status: string) {
   }
 }
 
+type InlineCreateSelectProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder: string;
+  className?: string;
+};
+
+function InlineCreateSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className,
+}: InlineCreateSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  const normalizedQuery = normalizeLabel(query);
+  const filteredOptions = options.filter((option) => {
+    const normalizedOption = normalizeLabel(option);
+    if (!normalizedQuery) {
+      return true;
+    }
+    return normalizedOption.toLowerCase().includes(normalizedQuery.toLowerCase());
+  });
+
+  const canCreate =
+    normalizedQuery.length > 0 &&
+    !options.some((option) => normalizeLabel(option).toLowerCase() === normalizedQuery.toLowerCase());
+
+  function applyValue(nextValue: string) {
+    onChange(normalizeLabel(nextValue));
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'border-border/60 bg-background/60 hover:border-primary/25 flex h-11 w-full items-center justify-between gap-2 rounded-2xl border px-3 text-left text-sm',
+            !value && 'text-muted-foreground',
+            className
+          )}
+        >
+          <span className="truncate">{value || placeholder}</span>
+          <ChevronDown className="text-muted-foreground size-4 shrink-0" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[320px] p-3">
+        <div className="space-y-3">
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (normalizedQuery) {
+                  applyValue(normalizedQuery);
+                }
+              }
+            }}
+            placeholder={placeholder}
+          />
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {canCreate ? (
+              <button
+                type="button"
+                className="hover:bg-accent flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => applyValue(normalizedQuery)}
+              >
+                <Plus className="size-4" />
+                <span>创建 “{normalizedQuery}”</span>
+              </button>
+            ) : null}
+            {filteredOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className="hover:bg-accent flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => applyValue(option)}
+              >
+                <span>{option}</span>
+                {normalizeLabel(value) === normalizeLabel(option) ? (
+                  <Check className="text-primary size-4 shrink-0" />
+                ) : null}
+              </button>
+            ))}
+            {!filteredOptions.length && !canCreate ? (
+              <div className="text-muted-foreground px-3 py-2 text-sm">没有匹配项</div>
+            ) : null}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ProductPageClient() {
   const [filters, setFilters] = useState<ProductFilters>(DEFAULT_PRODUCT_FILTERS);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
+  const [loadingEditor, setLoadingEditor] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { products, loading, error, refresh, create, update, remove, clearError } = useProducts();
+  const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
+  const { products, loading, error, refresh, getCatalog, create, update, remove, clearError } =
+    useProducts();
 
-  const editingProduct = useMemo(
-    () => products.find((item) => item.id === editingProductId) ?? null,
-    [editingProductId, products]
+  const categoryCount = useMemo(
+    () => new Set(products.map((item) => item.category).filter(Boolean)).size,
+    [products]
   );
 
-  const categoryCount = useMemo(() => {
-    return new Set(products.map((item) => item.category).filter(Boolean)).size;
-  }, [products]);
+  const activeVariantCount = useMemo(
+    () => products.reduce((total, item) => total + item.active_variant_count, 0),
+    [products]
+  );
+
+  const dimensionLabels = useMemo(() => collectDimensionLabels(form.variants), [form.variants]);
+  const valueSuggestions = useMemo(() => collectValueSuggestions(form.variants), [form.variants]);
 
   function resetForm() {
-    setEditingProductId(null);
     setForm(DEFAULT_FORM);
+    setEditingProductId(null);
+    setValidationError(null);
   }
 
   function openCreateDialog() {
@@ -124,23 +483,19 @@ export function ProductPageClient() {
     setDialogOpen(true);
   }
 
-  function openEditDialog(product: Product) {
-    setEditingProductId(product.id);
-    setForm({
-      name: product.name,
-      category: product.category,
-      brand: product.brand,
-      model: product.model,
-      sku: product.sku,
-      aliases: product.aliases,
-      price: product.price,
-      currency: product.currency || 'CNY',
-      status: product.status || 'active',
-      summary: product.summary,
-      tags: product.tags,
-      attributes: product.attributes,
-    });
-    setDialogOpen(true);
+  async function openEditDialog(productId: string) {
+    try {
+      setLoadingEditor(true);
+      clearError();
+      setValidationError(null);
+      const catalog = await getCatalog(productId);
+      setEditingProductId(productId);
+      setForm(normalizeCatalogToForm(catalog));
+      setDialogOpen(true);
+    } catch {
+    } finally {
+      setLoadingEditor(false);
+    }
   }
 
   function closeDialog() {
@@ -148,31 +503,98 @@ export function ProductPageClient() {
     resetForm();
   }
 
+  function addVariant() {
+    setForm((current) => ({
+      ...current,
+      variants: [...current.variants, { ...DEFAULT_VARIANT, conditions: [{ ...EMPTY_CONDITION }] }],
+    }));
+  }
+
+  function addCondition(rowIndex: number) {
+    setForm((current) => {
+      const variants = [...current.variants];
+      variants[rowIndex] = {
+        ...variants[rowIndex],
+        conditions: [...variants[rowIndex].conditions, { ...EMPTY_CONDITION }],
+      };
+      return { ...current, variants };
+    });
+  }
+
+  function removeCondition(rowIndex: number, conditionIndex: number) {
+    setForm((current) => {
+      const variants = [...current.variants];
+      const nextConditions = variants[rowIndex].conditions.filter((_, index) => index !== conditionIndex);
+      variants[rowIndex] = {
+        ...variants[rowIndex],
+        conditions: nextConditions.length ? nextConditions : [{ ...EMPTY_CONDITION }],
+      };
+      return { ...current, variants };
+    });
+  }
+
   async function handleSave() {
-    if (!form.name.trim() && !form.model.trim() && !form.sku.trim()) {
-      setValidationError('名称、型号、货号至少填写一项');
+    if (!form.product.name.trim() && !form.product.model.trim()) {
+      setValidationError('名称、型号至少填写一项');
+      return;
+    }
+    if (!form.variants.length) {
+      setValidationError('至少保留一条规格价格记录');
       return;
     }
 
-    const payload: ProductPayload = {
-      name: form.name.trim(),
-      category: form.category.trim(),
-      brand: form.brand.trim(),
-      model: form.model.trim(),
-      sku: form.sku.trim(),
-      aliases: form.aliases.trim(),
-      price: form.price.trim(),
-      currency: form.currency.trim() || 'CNY',
-      status: form.status,
-      summary: form.summary.trim(),
-      tags: form.tags.trim(),
-      attributes: form.attributes.trim(),
-    };
+    const seenCombinationKeys = new Set<string>();
+    for (const [rowIndex, variant] of form.variants.entries()) {
+      if (!variant.price_yuan.trim()) {
+        setValidationError(`第 ${rowIndex + 1} 行缺少价格`);
+        return;
+      }
+      if (parseYuanToMinor(variant.price_yuan) == null) {
+        setValidationError(`第 ${rowIndex + 1} 行的价格格式不正确`);
+        return;
+      }
+
+      const normalizedConditions = variant.conditions
+        .map((condition) => ({
+          dimension: normalizeLabel(condition.dimension),
+          value: normalizeLabel(condition.value),
+        }))
+        .filter((condition) => condition.dimension || condition.value);
+
+      if (!normalizedConditions.length) {
+        setValidationError(`第 ${rowIndex + 1} 行缺少规格组合`);
+        return;
+      }
+
+      const seenDimensions = new Set<string>();
+      for (const condition of normalizedConditions) {
+        if (!condition.dimension || !condition.value) {
+          setValidationError(`第 ${rowIndex + 1} 行存在未填完整的规格条件`);
+          return;
+        }
+        if (seenDimensions.has(condition.dimension)) {
+          setValidationError(`第 ${rowIndex + 1} 行的规格维度“${condition.dimension}”重复`);
+          return;
+        }
+        seenDimensions.add(condition.dimension);
+      }
+
+      const combinationKey = normalizedConditions
+        .map((condition) => `${condition.dimension}=${condition.value}`)
+        .sort()
+        .join('|');
+      if (seenCombinationKeys.has(combinationKey)) {
+        setValidationError('存在重复的规格组合');
+        return;
+      }
+      seenCombinationKeys.add(combinationKey);
+    }
 
     try {
       setSaving(true);
       setValidationError(null);
       clearError();
+      const payload = buildPayload(form);
       if (editingProductId) {
         await update(editingProductId, payload);
       } else {
@@ -185,18 +607,16 @@ export function ProductPageClient() {
     }
   }
 
-  async function handleDelete(product: Product) {
-    const label = product.model || product.sku || product.name || '未命名商品';
+  async function handleDelete(productId: string, label: string) {
     if (!window.confirm(`确认删除商品“${label}”吗？删除后不可恢复。`)) {
       return;
     }
-
     try {
-      setDeletingId(product.id);
+      setDeletingId(productId);
       setValidationError(null);
       clearError();
-      await remove(product.id);
-      if (editingProductId === product.id) {
+      await remove(productId);
+      if (editingProductId === productId) {
         closeDialog();
       }
     } catch {
@@ -224,8 +644,8 @@ export function ProductPageClient() {
           <div>
             <p className="font-mono text-[11px] font-bold tracking-[0.24em] uppercase">产品目录</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">结构化商品库</h1>
-            <p className="text-muted-foreground mt-3 max-w-2xl text-sm leading-6">
-              这里维护通用商品主数据：分类、品牌、型号、货号、价格、标签和扩展属性。智能体会优先查这里，再用知识库补充说明。
+            <p className="text-muted-foreground mt-3 max-w-3xl text-sm leading-6">
+              商品仍然按规格组合定价，但录入方式简化成一张表。第一列在单元格里连续添加规格维度和值，第二列直接填价格。
             </p>
           </div>
 
@@ -251,7 +671,7 @@ export function ProductPageClient() {
 
         <div className="mb-6 grid gap-4 md:grid-cols-3">
           <Surface className="p-5" variant="elevated" radius="xl">
-            <p className="text-muted-foreground text-sm">当前结果</p>
+            <p className="text-muted-foreground text-sm">当前商品数</p>
             <p className="mt-3 text-3xl font-semibold">{products.length}</p>
           </Surface>
           <Surface className="p-5" variant="elevated" radius="xl">
@@ -259,10 +679,8 @@ export function ProductPageClient() {
             <p className="mt-3 text-3xl font-semibold">{categoryCount}</p>
           </Surface>
           <Surface className="p-5" variant="elevated" radius="xl">
-            <p className="text-muted-foreground text-sm">启用商品</p>
-            <p className="mt-3 text-3xl font-semibold">
-              {products.filter((item) => item.status === 'active').length}
-            </p>
+            <p className="text-muted-foreground text-sm">启用变体数</p>
+            <p className="mt-3 text-3xl font-semibold">{activeVariantCount}</p>
           </Surface>
         </div>
 
@@ -273,7 +691,7 @@ export function ProductPageClient() {
               onChange={(event) =>
                 setFilters((current) => ({ ...current, query: event.target.value }))
               }
-              placeholder="搜索型号、货号、品牌、分类、标签"
+              placeholder="搜索商品、型号、规格值、SKU"
             />
             <Input
               value={filters.category}
@@ -319,15 +737,15 @@ export function ProductPageClient() {
 
         <Surface className="overflow-hidden" variant="panel" radius="xl">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1160px] text-sm">
+            <table className="w-full min-w-[1120px] text-sm">
               <thead className="bg-accent/40 text-left">
                 <tr className="border-border/60 border-b">
                   <th className="px-4 py-3 font-medium">型号</th>
                   <th className="px-4 py-3 font-medium">名称</th>
                   <th className="px-4 py-3 font-medium">分类</th>
                   <th className="px-4 py-3 font-medium">品牌</th>
-                  <th className="px-4 py-3 font-medium">货号</th>
-                  <th className="px-4 py-3 font-medium">价格</th>
+                  <th className="px-4 py-3 font-medium">变体</th>
+                  <th className="px-4 py-3 font-medium">标准价范围</th>
                   <th className="px-4 py-3 font-medium">状态</th>
                   <th className="px-4 py-3 font-medium">更新时间</th>
                   <th className="px-4 py-3 text-right font-medium">操作</th>
@@ -341,61 +759,66 @@ export function ProductPageClient() {
                     </td>
                   </tr>
                 ) : products.length ? (
-                  products.map((product) => (
-                    <tr key={product.id} className="border-border/50 border-b last:border-b-0">
-                      <td className="px-4 py-3 font-medium">
-                        {product.model || product.sku || product.name || '-'}
-                      </td>
-                      <td className="max-w-[14rem] px-4 py-3">
-                        <div className="truncate">{product.name || '-'}</div>
-                        {product.aliases ? (
-                          <div className="text-muted-foreground mt-1 truncate text-xs">
-                            别名：{product.aliases}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3">{product.category || '-'}</td>
-                      <td className="px-4 py-3">{product.brand || '-'}</td>
-                      <td className="px-4 py-3">{product.sku || '-'}</td>
-                      <td className="px-4 py-3">{product.price || '-'}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={cn(
-                            'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
-                            statusBadgeClass(product.status)
+                  products.map((product) => {
+                    const label = product.model || product.name || product.id;
+                    return (
+                      <tr key={product.id} className="border-border/50 border-b last:border-b-0">
+                        <td className="px-4 py-3 font-medium">{product.model || '-'}</td>
+                        <td className="max-w-[16rem] px-4 py-3">
+                          <div className="truncate">{product.name || '-'}</div>
+                        </td>
+                        <td className="px-4 py-3">{product.category || '-'}</td>
+                        <td className="px-4 py-3">{product.brand || '-'}</td>
+                        <td className="px-4 py-3">
+                          {product.active_variant_count}/{product.variant_count}
+                        </td>
+                        <td className="px-4 py-3">
+                          {formatPriceRange(
+                            product.min_price_minor,
+                            product.max_price_minor,
+                            product.currency
                           )}
-                        >
-                          {statusLabel(product.status)}
-                        </span>
-                      </td>
-                      <td className="text-muted-foreground px-4 py-3">
-                        {formatDateTime(product.updated_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="icon-sm"
-                            variant="outline"
-                            onClick={() => openEditDialog(product)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={cn(
+                              'inline-flex rounded-full px-2.5 py-1 text-xs font-medium',
+                              statusBadgeClass(product.status)
+                            )}
                           >
-                            <Pencil />
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="outline"
-                            onClick={() => void handleDelete(product)}
-                            disabled={deletingId === product.id}
-                          >
-                            <Trash2 className={cn(deletingId === product.id && 'animate-pulse')} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {statusLabel(product.status)}
+                          </span>
+                        </td>
+                        <td className="text-muted-foreground px-4 py-3">
+                          {formatDateTime(product.updated_at)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              onClick={() => void openEditDialog(product.id)}
+                              disabled={loadingEditor}
+                            >
+                              <Pencil />
+                            </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              onClick={() => void handleDelete(product.id, label)}
+                              disabled={deletingId === product.id}
+                            >
+                              <Trash2 className={cn(deletingId === product.id && 'animate-pulse')} />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td className="text-muted-foreground px-4 py-10 text-center" colSpan={9}>
-                      还没有商品数据。先新增几条商品主数据，智能体才能稳定回答型号、价格和目录类问题。
+                      还没有商品数据。先创建商品，再逐行录入规格组合和价格。
                     </td>
                   </tr>
                 )}
@@ -409,158 +832,327 @@ export function ProductPageClient() {
         open={dialogOpen}
         onOpenChange={(open) => (open ? setDialogOpen(true) : closeDialog())}
       >
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-h-[88vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingProduct
-                ? `编辑商品 ${editingProduct.model || editingProduct.sku || editingProduct.name}`
-                : '新增商品'}
-            </DialogTitle>
+            <DialogTitle>{editingProductId ? '编辑商品规格价格表' : '新增商品规格价格表'}</DialogTitle>
             <DialogDescription>
-              推荐至少维护分类、品牌、型号、价格；行业特有信息统一写进扩展属性，不内置固定字段。
+              每一行是一条报价规则。第一列可连续追加“维度名 + 维度值”，第二列填写价格。
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">型号</p>
-              <Input
-                value={form.model}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, model: event.target.value }))
-                }
-                placeholder="例如 iPhone 15 Pro / SKU-001"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">名称</p>
-              <Input
-                value={form.name}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, name: event.target.value }))
-                }
-                placeholder="商品名称"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">分类</p>
-              <Input
-                value={form.category}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, category: event.target.value }))
-                }
-                placeholder="例如 手机 / 课程 / SaaS 套餐"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">品牌</p>
-              <Input
-                value={form.brand}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, brand: event.target.value }))
-                }
-                placeholder="品牌或供应商"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">货号</p>
-              <Input
-                value={form.sku}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, sku: event.target.value }))
-                }
-                placeholder="内部货号或 SKU"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">别名</p>
-              <Input
-                value={form.aliases}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, aliases: event.target.value }))
-                }
-                placeholder="简称、别称、英文名"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">价格</p>
-              <Input
-                value={form.price}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, price: event.target.value }))
-                }
-                placeholder="例如 1999 元 / 年"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">币种</p>
-              <Input
-                value={form.currency}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, currency: event.target.value }))
-                }
-                placeholder="例如 CNY"
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">状态</p>
-              <Select
-                value={form.status}
-                onValueChange={(value) => setForm((current) => ({ ...current, status: value }))}
-              >
-                <SelectTrigger className="w-full rounded-2xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">启用</SelectItem>
-                  <SelectItem value="draft">草稿</SelectItem>
-                  <SelectItem value="discontinued">停用</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <p className="text-sm font-medium">简介</p>
-              <Textarea
-                value={form.summary}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, summary: event.target.value }))
-                }
-                rows={4}
-                placeholder="商品卖点、用途或适合人群"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <p className="text-sm font-medium">标签</p>
-              <Textarea
-                value={form.tags}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, tags: event.target.value }))
-                }
-                rows={3}
-                placeholder="多个标签用逗号分隔"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <p className="text-sm font-medium">扩展属性</p>
-              <Textarea
-                value={form.attributes}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, attributes: event.target.value }))
-                }
-                rows={5}
-                placeholder={
-                  '任意行业字段都写这里，例如：\ncolor: black\nstorage: 256GB\nwarranty: 2 years'
-                }
-              />
-            </div>
+          <div className="space-y-6">
+            <section className="space-y-4">
+              <div>
+                <h3 className="text-base font-semibold">基础信息</h3>
+                <p className="text-muted-foreground text-sm">先定义商品主数据，再录入规格组合价格表。</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">商品名称</p>
+                  <Input
+                    value={form.product.name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, name: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">型号</p>
+                  <Input
+                    value={form.product.model}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, model: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">分类</p>
+                  <Input
+                    value={form.product.category}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, category: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">品牌</p>
+                  <Input
+                    value={form.product.brand}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, brand: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">别名</p>
+                  <Input
+                    value={form.product.aliases}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, aliases: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">状态</p>
+                  <Select
+                    value={form.product.status}
+                    onValueChange={(value) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, status: value },
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full rounded-2xl">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">启用</SelectItem>
+                      <SelectItem value="draft">草稿</SelectItem>
+                      <SelectItem value="discontinued">停用</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <p className="text-sm font-medium">简介</p>
+                  <Textarea
+                    rows={3}
+                    value={form.product.summary}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, summary: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">标签</p>
+                  <Textarea
+                    rows={3}
+                    value={form.product.tags}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, tags: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">扩展属性</p>
+                  <Textarea
+                    rows={3}
+                    value={form.product.attributes}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        product: { ...current.product, attributes: event.target.value },
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold">规格组合与价格</h3>
+                  <p className="text-muted-foreground text-sm">
+                    一行一条规则。第一列里用下拉建议或直接输入创建规格维度和值，再点 `+` 继续追加条件。
+                  </p>
+                </div>
+                <Button type="button" variant="outline" onClick={addVariant}>
+                  <Plus />
+                  新增一行
+                </Button>
+              </div>
+
+              <Surface className="overflow-hidden" variant="panel" radius="xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[920px] text-sm">
+                    <thead className="bg-accent/40 text-left">
+                      <tr className="border-border/60 border-b">
+                        <th className="px-4 py-3 font-medium">规格组合</th>
+                        <th className="px-4 py-3 font-medium">价格（元）</th>
+                        <th className="px-4 py-3 font-medium">状态</th>
+                        <th className="px-4 py-3 text-right font-medium">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.variants.map((variant, rowIndex) => (
+                        <tr
+                          key={`${variant.sku || 'row'}-${rowIndex}`}
+                          className="border-border/50 border-b last:border-b-0"
+                        >
+                          <td className="px-4 py-4 align-top">
+                            <div className="space-y-3">
+                              {variant.conditions.map((condition, conditionIndex) => {
+                                const normalizedDimension = normalizeLabel(condition.dimension);
+                                const valueOptions = valueSuggestions.get(normalizedDimension) || [];
+                                return (
+                                  <div
+                                    key={`${rowIndex}-${conditionIndex}`}
+                                    className="flex flex-wrap items-center gap-2"
+                                  >
+                                    <InlineCreateSelect
+                                      value={condition.dimension}
+                                      options={dimensionLabels}
+                                      placeholder="维度名"
+                                      className="w-[10rem]"
+                                      onChange={(nextValue) =>
+                                        setForm((current) => {
+                                          const variants = [...current.variants];
+                                          const conditions = [...variants[rowIndex].conditions];
+                                          conditions[conditionIndex] = {
+                                            ...conditions[conditionIndex],
+                                            dimension: nextValue,
+                                          };
+                                          variants[rowIndex] = {
+                                            ...variants[rowIndex],
+                                            conditions,
+                                          };
+                                          return { ...current, variants };
+                                        })
+                                      }
+                                    />
+                                    <InlineCreateSelect
+                                      value={condition.value}
+                                      options={valueOptions}
+                                      placeholder="维度值"
+                                      className="w-[12rem]"
+                                      onChange={(nextValue) =>
+                                        setForm((current) => {
+                                          const variants = [...current.variants];
+                                          const conditions = [...variants[rowIndex].conditions];
+                                          conditions[conditionIndex] = {
+                                            ...conditions[conditionIndex],
+                                            value: nextValue,
+                                          };
+                                          variants[rowIndex] = {
+                                            ...variants[rowIndex],
+                                            conditions,
+                                          };
+                                          return { ...current, variants };
+                                        })
+                                      }
+                                    />
+                                    {variant.conditions.length > 1 ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => removeCondition(rowIndex, conditionIndex)}
+                                      >
+                                        <X />
+                                      </Button>
+                                    ) : null}
+                                    {conditionIndex === variant.conditions.length - 1 ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon-sm"
+                                        onClick={() => addCondition(rowIndex)}
+                                      >
+                                        <Plus />
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 align-top">
+                            <Input
+                              value={variant.price_yuan}
+                              onChange={(event) =>
+                                setForm((current) => {
+                                  const variants = [...current.variants];
+                                  variants[rowIndex] = {
+                                    ...variants[rowIndex],
+                                    price_yuan: event.target.value,
+                                  };
+                                  return { ...current, variants };
+                                })
+                              }
+                              placeholder="例如 2000"
+                            />
+                          </td>
+                          <td className="px-4 py-4 align-top">
+                            <Select
+                              value={variant.status}
+                              onValueChange={(value) =>
+                                setForm((current) => {
+                                  const variants = [...current.variants];
+                                  variants[rowIndex] = {
+                                    ...variants[rowIndex],
+                                    status: value,
+                                  };
+                                  return { ...current, variants };
+                                })
+                              }
+                            >
+                              <SelectTrigger className="w-[120px] rounded-2xl">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">启用</SelectItem>
+                                <SelectItem value="draft">草稿</SelectItem>
+                                <SelectItem value="discontinued">停用</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-4 py-4 align-top">
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                size="icon-sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants:
+                                      current.variants.length > 1
+                                        ? current.variants.filter((_, index) => index !== rowIndex)
+                                        : [{ ...DEFAULT_VARIANT, conditions: [{ ...EMPTY_CONDITION }] }],
+                                  }))
+                                }
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Surface>
+            </section>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog} disabled={saving}>
               取消
             </Button>
-            <Button onClick={() => void handleSave()} disabled={saving}>
-              {saving ? '保存中...' : editingProduct ? '保存修改' : '创建商品'}
+            <Button onClick={() => void handleSave()} disabled={saving || loadingEditor}>
+              {saving ? '保存中...' : editingProductId ? '保存修改' : '创建商品'}
             </Button>
           </DialogFooter>
         </DialogContent>

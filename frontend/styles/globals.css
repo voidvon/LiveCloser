@@ -38,6 +38,8 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --scrollbar-thumb: oklch(0.72 0 0 / 75%);
+  --scrollbar-thumb-hover: oklch(0.58 0 0 / 82%);
 }
 
 @media (max-width: 1023px) {
@@ -78,6 +80,8 @@
   --sidebar-accent-foreground: oklch(0.96 0.01 255);
   --sidebar-border: oklch(0.36 0.016 255 / 55%);
   --sidebar-ring: oklch(0.6 0.08 225);
+  --scrollbar-thumb: oklch(0.48 0.028 225 / 78%);
+  --scrollbar-thumb-hover: oklch(0.58 0.05 225 / 88%);
 }
 
 @theme inline {
@@ -124,8 +128,33 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+  html {
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }

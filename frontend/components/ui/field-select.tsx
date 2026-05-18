@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { ChevronDownIcon } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -38,6 +39,35 @@ function FieldSelect({
   triggerClassName,
   contentClassName,
 }: FieldSelectProps) {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const selectedOption = options.find((option) => option.value === value);
+  const displayLabel = selectedOption?.label ?? placeholder ?? '未选择';
+
+  if (!mounted) {
+    return (
+      <div className={className}>
+        <div
+          aria-hidden="true"
+          className={cn(
+            'border-border/60 bg-background/60 h-11 w-full rounded-2xl border px-4 shadow-none',
+            'flex items-center justify-between gap-2 text-sm',
+            !selectedOption && 'text-muted-foreground',
+            disabled && 'cursor-not-allowed opacity-50',
+            triggerClassName
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
+          <ChevronDownIcon className="text-muted-foreground size-4 shrink-0 opacity-50" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={className}>
       <Select
@@ -53,7 +83,9 @@ function FieldSelect({
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <SelectContent className={cn('rounded-2xl border-border/70 bg-popover/98', contentClassName)}>
+        <SelectContent
+          className={cn('border-border/70 bg-popover/98 rounded-2xl', contentClassName)}
+        >
           <SelectItem value={EMPTY_VALUE}>{placeholder ?? '未选择'}</SelectItem>
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>

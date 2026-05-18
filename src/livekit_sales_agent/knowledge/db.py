@@ -21,7 +21,7 @@ def _is_index_statement(statement: str) -> bool:
 
 BASE_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if not _is_index_statement(statement)]
 INDEX_SCHEMA_STATEMENTS = [statement for statement in SCHEMA_STATEMENTS if _is_index_statement(statement)]
-LATEST_MIGRATION_VERSION = 5
+LATEST_MIGRATION_VERSION = 6
 
 
 class _ManagedConnection(sqlite3.Connection):
@@ -245,12 +245,157 @@ def _migration_005_product_fields(conn: sqlite3.Connection) -> None:
         _backfill_generic_product_fields(conn)
 
 
+def _migration_006_product_catalog(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_spec_dimensions (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            label TEXT NOT NULL,
+            value_type TEXT NOT NULL DEFAULT 'enum',
+            unit TEXT NOT NULL DEFAULT '',
+            is_required INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            UNIQUE (product_id, key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_spec_dimension_options (
+            id TEXT PRIMARY KEY,
+            dimension_id TEXT NOT NULL,
+            option_key TEXT NOT NULL,
+            option_label TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (dimension_id) REFERENCES product_spec_dimensions(id) ON DELETE CASCADE,
+            UNIQUE (dimension_id, option_key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_variants (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            variant_name TEXT NOT NULL DEFAULT '',
+            spec_signature TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            barcode TEXT NOT NULL DEFAULT '',
+            weight REAL,
+            lead_time_days INTEGER,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            UNIQUE (sku),
+            UNIQUE (product_id, spec_signature)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_variant_spec_values (
+            id TEXT PRIMARY KEY,
+            variant_id TEXT NOT NULL,
+            dimension_id TEXT NOT NULL,
+            option_id TEXT,
+            value_text TEXT NOT NULL DEFAULT '',
+            value_number REAL,
+            value_display TEXT NOT NULL DEFAULT '',
+            sort_value REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+            FOREIGN KEY (dimension_id) REFERENCES product_spec_dimensions(id) ON DELETE CASCADE,
+            FOREIGN KEY (option_id) REFERENCES product_spec_dimension_options(id) ON DELETE SET NULL,
+            UNIQUE (variant_id, dimension_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS price_books (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'CNY',
+            audience_type TEXT NOT NULL DEFAULT 'retail',
+            priority INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (code)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS product_variant_prices (
+            id TEXT PRIMARY KEY,
+            variant_id TEXT NOT NULL,
+            price_book_id TEXT NOT NULL,
+            pricing_mode TEXT NOT NULL DEFAULT 'fixed',
+            amount_minor INTEGER,
+            min_amount_minor INTEGER,
+            max_amount_minor INTEGER,
+            min_qty INTEGER NOT NULL DEFAULT 1,
+            effective_from TEXT,
+            effective_to TEXT,
+            tax_included INTEGER NOT NULL DEFAULT 1,
+            remarks TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
+            FOREIGN KEY (price_book_id) REFERENCES price_books(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_spec_dimensions_product_id ON product_spec_dimensions(product_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_spec_dimension_options_dimension_id ON product_spec_dimension_options(dimension_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variants_status ON product_variants(status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variant_spec_values_variant_id ON product_variant_spec_values(variant_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variant_spec_values_dimension_id ON product_variant_spec_values(dimension_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_price_books_status_priority ON price_books(status, priority)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variant_prices_variant_id ON product_variant_prices(variant_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_product_variant_prices_price_book_id ON product_variant_prices(price_book_id)"
+    )
+    _ensure_standard_price_book(conn)
+
+
 MIGRATIONS = [
     (1, _migration_001_embedding_profiles),
     (2, _migration_002_chunk_category),
     (3, _migration_003_conversation_fields),
     (4, _migration_004_agent_profile_fields),
     (5, _migration_005_product_fields),
+    (6, _migration_006_product_catalog),
 ]
 
 
@@ -423,6 +568,22 @@ def _backfill_generic_product_fields(conn: sqlite3.Connection) -> None:
                 row["id"],
             ),
         )
+
+
+def _ensure_standard_price_book(conn: sqlite3.Connection) -> None:
+    existing = conn.execute("SELECT id FROM price_books WHERE code = 'standard'").fetchone()
+    if existing is not None:
+        return
+    now = conn.execute("SELECT CURRENT_TIMESTAMP").fetchone()[0]
+    conn.execute(
+        """
+        INSERT INTO price_books (
+            id, code, name, currency, audience_type, priority, status, created_at, updated_at
+        )
+        VALUES (?, 'standard', '标准价', 'CNY', 'retail', 0, 'active', ?, ?)
+        """,
+        (str(uuid4()), now, now),
+    )
 
 
 def _backfill_agent_profile_opening_messages(conn: sqlite3.Connection) -> None:

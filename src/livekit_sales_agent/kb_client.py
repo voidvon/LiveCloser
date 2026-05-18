@@ -121,20 +121,44 @@ class KBClient:
         status: str = "",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
+        search_query = query.strip() or model.strip() or sku.strip()
         payload = await self._request_json(
             "GET",
             "/products",
             params={
-                "query": query,
+                "query": search_query,
                 "category": category,
                 "brand": brand,
-                "model": model,
-                "sku": sku,
                 "status": status,
                 "limit": limit,
             },
         )
         return list(payload or [])
+
+    async def get_product_catalog(self, product_id: str) -> Optional[dict[str, Any]]:
+        payload = await self._request_json("GET", f"/products/{product_id}/catalog-view")
+        return dict(payload or {}) if payload else None
+
+    async def resolve_product_price(
+        self,
+        product_id: str,
+        *,
+        price_book_code: str = "standard",
+        quantity: int = 1,
+        effective_at: Optional[str] = None,
+        specs: Optional[dict[str, str]] = None,
+    ) -> Optional[dict[str, Any]]:
+        payload = await self._request_json(
+            "POST",
+            f"/products/{product_id}/resolve-price",
+            json_body={
+                "price_book_code": price_book_code,
+                "quantity": quantity,
+                "effective_at": effective_at,
+                "specs": specs or {},
+            },
+        )
+        return dict(payload or {}) if payload else None
 
     async def search_knowledge_base(
         self,
